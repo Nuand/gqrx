@@ -886,6 +886,7 @@ void CPlotter::paintEvent(QPaintEvent *)
 }
 
 
+#include <stdio.h>
 //////////////////////////////////////////////////////////////////////
 // Called to update spectrum data for displaying on the screen
 //////////////////////////////////////////////////////////////////////
@@ -918,6 +919,7 @@ void CPlotter::draw()
 
         // get scaled FFT data
         n = qMin(w, MAX_SCREENSIZE);
+	//printf("wid = %d\n", n);
         getScreenIntegerFFTData(255, n, m_MaxdB, m_MindB,
                                 m_FftCenter - (qint64)m_Span / 2,
                                 m_FftCenter + (qint64)m_Span / 2,
@@ -1141,6 +1143,7 @@ void CPlotter::setNewFttData(float *fftData, float *wfData, int size)
     draw();
 }
 
+#include <stdio.h>
 void CPlotter::getScreenIntegerFFTData(qint32 plotHeight, qint32 plotWidth,
                                        float maxdB, float mindB,
                                        qint64 startFreq, qint64 stopFreq,
@@ -1170,6 +1173,7 @@ void CPlotter::getScreenIntegerFFTData(qint32 plotHeight, qint32 plotWidth,
         m_BinMin = m_FFTSize - 1;
     if (m_BinMax <= m_BinMin)
         m_BinMax = m_BinMin + 1;
+    //printf("[%lld,%lld] %d %d %d\n", startFreq, stopFreq, m_BinMin, m_BinMax, plotWidth);
     maxbin = m_BinMax < m_FFTSize ? m_BinMax : m_FFTSize;
     bool largeFft = (m_BinMax-m_BinMin) > plotWidth; // true if more fft point than plot points
 

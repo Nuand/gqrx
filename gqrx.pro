@@ -51,7 +51,7 @@ isEmpty(PREFIX) {
 target.path  = $$PREFIX/bin
 INSTALLS    += target 
 
-#CONFIG += debug
+CONFIG += debug
 
 # disable debug messages in release
 CONFIG(debug, debug|release) {

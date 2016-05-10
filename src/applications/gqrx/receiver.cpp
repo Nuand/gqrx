@@ -306,6 +306,11 @@ double receiver::set_input_rate(double rate)
 {
     double  current_rate;
     bool    rate_has_changed;
+    bool    ssa_mode;
+    int     max_sps;
+    int     num_bin;
+    double  halfband;
+    int     success;
 
     current_rate = src->get_sample_rate();
     rate_has_changed = !(rate == current_rate ||
@@ -313,7 +318,27 @@ double receiver::set_input_rate(double rate)
             * std::numeric_limits<double>::epsilon());
 
     tb->lock();
-    d_input_rate = src->set_sample_rate(rate);
+    ssa_mode = false;
+    if (src->ioctl("ssa_support", (uint64_t)&max_sps)) {
+        if (rate > max_sps) {
+            ssa_mode = true;
+        }
+    }
+
+    if (ssa_mode) {
+        d_input_rate = src->ioctl("set_ssa_sample_rate", (uint64_t)rate);
+
+        if (d_input_rate > 0 ) {
+//            d_input_rate = src->ioctl("get_ssa_config", &num_bin, &halfband);
+            num_bin = 3;
+            halfband = 14/40;
+            iq_fft->set_sweeping_mode(true, num_bin, halfband);
+        }
+    } else {
+        d_input_rate = src->ioctl("set_ssa_sample_rate", (uint64_t)0);
+        iq_fft->set_sweeping_mode(false, 0, 0);
+        d_input_rate = src->set_sample_rate(rate);
+    }
 
     if (d_input_rate == 0)
     {

@@ -25,6 +25,8 @@
 #include <gnuradio/filter/firdes.h>
 #include <gnuradio/gr_complex.h>
 #include <gnuradio/fft/fft.h>
+#include <gnuradio/block.h>
+#include <gnuradio/tags.h>
 #include "dsp/rx_fft.h"
 
 
@@ -52,6 +54,15 @@ rx_fft_c::rx_fft_c(unsigned int fftsize, int wintype)
     /* allocate circular buffer */
     d_cbuf.set_capacity(d_fftsize);
 
+    for (int i = 0; i < 10; i++) {
+        d_mult_cbuf[i].set_capacity(d_fftsize);
+    }
+
+    d_mult_idx = 0;
+    d_mult_size = 3;
+
+    d_mult = true;
+
     /* create FFT window */
     set_window_type(wintype);
 }
@@ -59,6 +70,19 @@ rx_fft_c::rx_fft_c(unsigned int fftsize, int wintype)
 rx_fft_c::~rx_fft_c()
 {
     delete d_fft;
+}
+
+/*! \brief Set sweeping spectrum analyzer mode settings
+ *  \param enable Enable sweeping mode
+ *  \param num_bin Number of sweeping mode bins
+ *  \param halfband Fraction of FFT size that is usable bandwidth
+ *  \return 0 on success
+ */
+int rx_fft_c::set_sweeping_mode(bool enable, int num_bin, double halfband_coeff)
+{
+    d_mult = enable;
+    d_mult_size = num_bin;
+    return 0;
 }
 
 /*! \brief Receiver FFT work method.
@@ -70,6 +94,7 @@ rx_fft_c::~rx_fft_c()
  * circular buffer.
  * FFT is only executed when the GUI asks for new FFT data via get_fft_data().
  */
+#include <stdio.h>
 int rx_fft_c::work(int noutput_items,
                    gr_vector_const_void_star &input_items,
                    gr_vector_void_star &output_items)
@@ -77,12 +102,28 @@ int rx_fft_c::work(int noutput_items,
     int i;
     const gr_complex *in = (const gr_complex*)input_items[0];
     (void) output_items;
+    std::vector< gr::tag_t > tags;
+    get_tags_in_range(tags, 0, nitems_read(0), nitems_read(0) + noutput_items);
+    std::vector< gr::tag_t >::iterator it = tags.begin();
 
+    //d_mult_idx = 0;
     /* just throw new samples into the buffer */
     boost::mutex::scoped_lock lock(d_mutex);
     for (i = 0; i < noutput_items; i++)
     {
-        d_cbuf.push_back(in[i]);
+        if (d_mult) {
+            if (tags.size()) {
+                if (it->offset == (nitems_read(0) + i)) {
+                    d_mult_idx = to_long(it->value);
+                    if (it != tags.end())
+                        it++;
+//                    std::cout << "FUCK " << d_mult_idx << std::endl;
+                }
+            }
+            d_mult_cbuf[d_mult_idx].push_back(in[i]);
+        } else {
+            d_cbuf.push_back(in[i]);
+        }
     }
 
     return noutput_items;
@@ -93,25 +134,71 @@ int rx_fft_c::work(int noutput_items,
  *  \param fftPoints Buffer to copy FFT data
  *  \param fftSize Current FFT size (output).
  */
-void rx_fft_c::get_fft_data(std::complex<float>* fftPoints, unsigned int &fftSize)
+void rx_fft_c::get_fft_data(std::complex<float>* fftPoints, unsigned int &fftSize, unsigned int bin)
 {
     boost::mutex::scoped_lock lock(d_mutex);
 
-    if (d_cbuf.size() < d_fftsize)
-    {
-        // not enough samples in the buffer
-        fftSize = 0;
+    if (!d_mult) {
+        if (d_cbuf.size() < d_fftsize)
+        {
+            // not enough samples in the buffer
+            fftSize = 0;
 
-        return;
+            return;
+        }
+
+        int halfband = (d_fftsize * 14) / 40;
+        /* perform FFT */
+        do_fft(d_cbuf.linearize(), d_cbuf.size());  // FIXME: array_one() and two() may be faster
+        //d_cbuf.clear();
+
+        /* get FFT data */
+        memcpy(fftPoints, d_fft->get_outbuf(), sizeof(gr_complex)*d_fftsize);
+        fftSize = d_fftsize;
+    } else {
+        int halfband = (d_fftsize * 14) / 40;
+        fftSize = d_fftsize + halfband * ( d_mult_size - 1 );
+
+        for (int i = 0; i < d_fftsize * 4; i++) {
+            fftPoints[i] = 0;
+        }
+        for (int i = 0; i < d_mult_size; i++) {
+            if (d_mult_cbuf[i].size() < d_fftsize)
+            {
+                // not enough samples in the buffer
+                continue;
+            }
+
+            /* perform FFT */
+            do_fft(d_mult_cbuf[i].linearize(), d_mult_cbuf[i].size());  // FIXME: array_one() and two() may be faster
+            //d_cbuf.clear();
+
+            if( i == 0 ) {
+                /* get FFT data */
+                memcpy(fftPoints,                   d_fft->get_outbuf(),                    sizeof(gr_complex)*halfband);
+                memcpy(fftPoints+fftSize-halfband,  d_fft->get_outbuf()+d_fftsize-halfband, sizeof(gr_complex)*halfband);
+            } else {
+                if ( i & 1 ) {
+                    // odd = left
+                    if ((i+2) == d_mult_size) {
+                        //memcpy(fftPoints+fftSize -halfband*((i+1)/2)-d_fftsize/2, d_fft->get_outbuf()+d_fftsize/2, sizeof(gr_complex)*d_fftsize/2);
+                        memcpy(fftPoints+fftSize -halfband*((i+1)/2)-d_fftsize/2, d_fft->get_outbuf()+d_fftsize/2, sizeof(gr_complex)*(d_fftsize-3)/2);
+                    } else {
+                        memcpy(fftPoints+fftSize -halfband*((i+1)/2+1), d_fft->get_outbuf()+d_fftsize-halfband, sizeof(gr_complex)*halfband);
+                    }
+                } else {
+                    // even = right
+                    if ((i+1) == d_mult_size) {
+                        //memcpy(fftPoints         +halfband*(i/2), d_fft->get_outbuf(), sizeof(gr_complex)*d_fftsize/2);
+                        memcpy(fftPoints         +halfband*(i/2)+3, d_fft->get_outbuf()+3, sizeof(gr_complex)*(d_fftsize/2 - 3));
+                    } else {
+                        memcpy(fftPoints         +halfband*(i/2), d_fft->get_outbuf(), sizeof(gr_complex)*halfband);
+                    }
+                }
+            }
+        }
+
     }
-
-    /* perform FFT */
-    do_fft(d_cbuf.linearize(), d_cbuf.size());  // FIXME: array_one() and two() may be faster
-    //d_cbuf.clear();
-
-    /* get FFT data */
-    memcpy(fftPoints, d_fft->get_outbuf(), sizeof(gr_complex)*d_fftsize);
-    fftSize = d_fftsize;
 }
 
 /*! \brief Compute FFT on the available input data.
@@ -151,6 +238,10 @@ void rx_fft_c::set_fft_size(unsigned int fftsize)
         /* clear and resize circular buffer */
         d_cbuf.clear();
         d_cbuf.set_capacity(d_fftsize);
+        for (int i = 0 ; i < 10 ; i++) {
+            d_mult_cbuf[i].clear();
+            d_mult_cbuf[i].set_capacity(d_fftsize);
+        }
 
         /* reset window */
         int wintype = d_wintype; // FIXME: would be nicer with a window_reset()

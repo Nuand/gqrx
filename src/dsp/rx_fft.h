@@ -77,7 +77,9 @@ public:
              gr_vector_const_void_star &input_items,
              gr_vector_void_star &output_items);
 
-    void get_fft_data(std::complex<float>* fftPoints, unsigned int &fftSize);
+    int set_sweeping_mode(bool enable, int num_bin, double halfband);
+
+    void get_fft_data(std::complex<float>* fftPoints, unsigned int &fftSize, unsigned int bin = 0);
 
     void set_window_type(int wintype);
     int  get_window_type();
@@ -95,6 +97,11 @@ private:
     std::vector<float>  d_window; /*! FFT window taps. */
 
     boost::circular_buffer<gr_complex> d_cbuf; /*! buffer to accumulate samples. */
+    boost::circular_buffer<gr_complex> d_mult_cbuf[10]; /*! vector of buffers to accumulate samples. */
+    int          d_mult_idx;
+    int          d_mult_size;
+    bool         d_mult;
+
 
     void do_fft(const gr_complex *data_in, unsigned int size);
 
@@ -157,6 +164,7 @@ private:
     std::vector<float>  d_window; /*! FFT window taps. */
 
     boost::circular_buffer<float> d_cbuf; /*! buffer to accumulate samples. */
+    boost::circular_buffer<float> d_mult_cbuf[10]; /*! vector of buffers to accumulate samples. */
 
     void do_fft(const float *data_in, unsigned int size);
 

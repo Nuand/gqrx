@@ -386,6 +386,7 @@ bool MainWindow::loadConfig(const QString cfgfile, bool check_crash)
 {
     double      actual_rate;
     qint64      int64_val;
+    double      span_val;
     int         int_val;
     bool        bool_val;
     bool        conf_ok = false;
@@ -404,6 +405,7 @@ bool MainWindow::loadConfig(const QString cfgfile, bool check_crash)
 
     qDebug() << "Configuration file:" << m_settings->fileName();
 
+    check_crash = false;
     if (check_crash)
     {
         if (m_settings->value("crashed", false).toBool())
@@ -484,7 +486,10 @@ bool MainWindow::loadConfig(const QString cfgfile, bool check_crash)
     QString outdev = m_settings->value("output/device", "").toString();
     rx->set_output_device(outdev.toStdString());
 
+#define MHZ 1000000
     int_val = m_settings->value("input/sample_rate", 0).toInt(&conv_ok);
+
+    span_val = int_val;
     if (conv_ok && (int_val > 0))
     {
         actual_rate = rx->set_input_rate(int_val);
@@ -1273,7 +1278,7 @@ void MainWindow::audioFftTimeout()
     if (fftsize == 0)
     {
         /* nothing to do, wait until next activation. */
-        qDebug() << "No audio FFT data.";
+        //qDebug() << "No audio FFT data.";
         return;
     }
 

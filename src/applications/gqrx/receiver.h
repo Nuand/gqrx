@@ -232,6 +232,8 @@ private:
     bool        d_iq_rev;           /*!< Whether I/Q is reversed or not. */
     bool        d_dc_cancel;        /*!< Enable automatic DC removal. */
     bool        d_iq_balance;       /*!< Enable automatic IQ balance. */
+    bool        d_ssa_mode;         /*!< Enable Sweeping Spectrum Analyzer mode. */
+    double      d_bin_sps;          /*!< Sampling rate of bin. */
 
     std::string input_devstr;  /*!< Current input device string. */
     std::string output_devstr; /*!< Current output device string. */

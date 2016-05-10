@@ -390,6 +390,9 @@ void CIoConfig::updateInputSampleRates(int rate)
         ui->inSrCombo->addItem("30000000");
         ui->inSrCombo->addItem("35000000");
         ui->inSrCombo->addItem("40000000");
+        ui->inSrCombo->addItem("68000000");
+        ui->inSrCombo->addItem("96000000");
+        ui->inSrCombo->addItem("124000000");
     }
     else if (ui->inDevEdit->text().contains("sdr-iq"))
     {
