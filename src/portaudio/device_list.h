@@ -20,8 +20,7 @@
  * the Free Software Foundation, Inc., 51 Franklin Street,
  * Boston, MA 02110-1301, USA.
  */
-#ifndef PORTAUDIO_DEVICE_LIST_H
-#define PORTAUDIO_DEVICE_LIST_H
+#pragma once
 #include <string>
 #include <vector>
 #include <portaudio.h>
@@ -43,9 +42,9 @@ public:
     void set_name(string name) { d_name = name; }
     void set_description(string desc) { d_description = desc; }
 
-    unsigned int get_index() { return d_index; }
-    string  get_name()  { return d_name; }
-    string  get_description() { return d_description; }
+    unsigned int get_index() const { return d_index; }
+    string  get_name() const { return d_name; }
+    string  get_description() const { return d_description; }
 
 private:
     unsigned int d_index;    /*! The index of the audio device (unique for each source/sink). */
@@ -64,6 +63,9 @@ public:
     vector<portaudio_device> get_input_devices() { return d_sources; }
     vector<portaudio_device> get_output_devices() {return d_sinks; }
 
+    /** Get output device index. Returns -1 if not found */
+    PaDeviceIndex   get_output_device_index(const string name) const;
+
 private:
     vector<portaudio_device> d_sources;   /*! List of pulseaudio sources. */
     vector<portaudio_device> d_sinks;  /*! List of pulseaudio sinks. */
@@ -72,5 +74,3 @@ private:
     void add_sink(unsigned int idx, string name, string desc);
     void add_source(unsigned int idx, string name, string desc);
 };
-
-#endif // PORTAUDIO_DEVICE_LIST_H

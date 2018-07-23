@@ -25,7 +25,11 @@
 #include <iostream>
 #include <QString>
 #include <QStringList>
+#include <QtGlobal>
 #include "remote_control.h"
+
+#define DEFAULT_RC_PORT            7356
+#define DEFAULT_RC_ALLOWED_HOSTS   "::ffff:127.0.0.1"
 
 RemoteControl::RemoteControl(QObject *parent) :
     QObject(parent)
@@ -34,16 +38,27 @@ RemoteControl::RemoteControl(QObject *parent) :
     rc_freq = 0;
     rc_filter_offset = 0;
     bw_half = 740e3;
+    rc_lnb_lo_mhz = 0.0;
     rc_mode = 0;
+    rc_passband_lo = 0;
+    rc_passband_hi = 0;
     signal_level = -200.0;
     squelch_level = -150.0;
     audio_recorder_status = false;
     receiver_running = false;
+    hamlib_compatible = false;
 
-    rc_port = 7356;
-    rc_allowed_hosts.append("::ffff:127.0.0.1");
+    rc_port = DEFAULT_RC_PORT;
+    rc_allowed_hosts.append(DEFAULT_RC_ALLOWED_HOSTS);
 
     rc_socket = 0;
+
+#if QT_VERSION < 0x050900
+    // Disable proxy setting detected by Qt
+    // Workaround for https://bugreports.qt.io/browse/QTBUG-58374
+    // Fix: https://codereview.qt-project.org/#/c/186124/
+    rc_server.setProxy(QNetworkProxy::NoProxy);
+#endif
 
     connect(&rc_server, SIGNAL(newConnection()), this, SLOT(acceptConnection()));
 
@@ -57,14 +72,18 @@ RemoteControl::~RemoteControl()
 /*! \brief Start the server. */
 void RemoteControl::start_server()
 {
-    rc_server.listen(QHostAddress::Any, rc_port);
+    if (!rc_server.isListening())
+        rc_server.listen(QHostAddress::Any, rc_port);
 }
 
 /*! \brief Stop the server. */
 void RemoteControl::stop_server()
 {
-    if (rc_socket != 0)
+    if (rc_socket != 0) {
         rc_socket->close();
+        rc_socket->deleteLater();
+        rc_socket = 0;
+    }
 
     if (rc_server.isListening())
         rc_server.close();
@@ -74,35 +93,45 @@ void RemoteControl::stop_server()
 /*! \brief Read settings. */
 void RemoteControl::readSettings(QSettings *settings)
 {
-    bool conv_ok;
+    if (!settings)
+        return;
 
-    rc_freq = settings->value("input/frequency", 144500000).toLongLong(&conv_ok);
-    rc_filter_offset = settings->value("receiver/offset", 0).toInt(&conv_ok);
+    settings->beginGroup("remote_control");
 
     // Get port number; restart server if running
-    rc_port = settings->value("remote_control/port", 7356).toInt(&conv_ok);
-    if (rc_server.isListening())
-    {
-        rc_server.close();
-        rc_server.listen(QHostAddress::Any, rc_port);
-    }
+    if (settings->contains("port"))
+        setPort(settings->value("port").toInt());
 
-    // get list of allowed hosts
-    if (settings->contains("remote_control/allowed_hosts"))
-        rc_allowed_hosts = settings->value("remote_control/allowed_hosts").toStringList();
+    // Get list of allowed hosts
+    if (settings->contains("allowed_hosts"))
+        setHosts(settings->value("allowed_hosts").toStringList());
+
+    settings->endGroup();
 }
 
 void RemoteControl::saveSettings(QSettings *settings) const
 {
-    if (rc_port != 7356)
-        settings->setValue("remote_control/port", rc_port);
-    else
-        settings->remove("remote_control/port");
+    if (!settings)
+        return;
 
-    if ((rc_allowed_hosts.count() != 1) || (rc_allowed_hosts.at(0) != "::ffff:127.0.0.1"))
-        settings->setValue("remote_control/allowed_hosts", rc_allowed_hosts);
+    settings->beginGroup("remote_control");
+
+    if (rc_server.isListening())
+        settings->setValue("enabled", true);
     else
-        settings->remove("remote_control/allowed_hosts");
+        settings->remove("enabled");
+
+    if (rc_port != DEFAULT_RC_PORT)
+        settings->setValue("port", rc_port);
+    else
+        settings->remove("port");
+
+    if (rc_allowed_hosts.count() > 0)
+        settings->setValue("allowed_hosts", rc_allowed_hosts);
+    else
+        settings->remove("allowed_hosts");
+
+    settings->endGroup();
 }
 
 /*! \brief Set new network port.
@@ -126,10 +155,7 @@ void RemoteControl::setPort(int port)
 
 void RemoteControl::setHosts(QStringList hosts)
 {
-    rc_allowed_hosts.clear();
-
-    for (int i = 0; i < hosts.count(); i++)
-        rc_allowed_hosts << hosts.at(i);
+    rc_allowed_hosts = hosts;
 }
 
 
@@ -139,6 +165,11 @@ void RemoteControl::setHosts(QStringList hosts)
  */
 void RemoteControl::acceptConnection()
 {
+    if (rc_socket)
+    {
+        rc_socket->close();
+        rc_socket->deleteLater();
+    }
     rc_socket = rc_server.nextPendingConnection();
 
     // check if host is allowed
@@ -148,6 +179,8 @@ void RemoteControl::acceptConnection()
         std::cout << "*** Remote connection attempt from " << address.toStdString()
                   << " (not in allowed list)" << std::endl;
         rc_socket->close();
+        rc_socket->deleteLater();
+        rc_socket = 0;
     }
     else
     {
@@ -164,8 +197,7 @@ void RemoteControl::startRead()
 {
     char    buffer[1024] = {0};
     int     bytes_read;
-
-    bool ok = true;
+    QString answer = "";
 
     bytes_read = rc_socket->readLine(buffer, 1024);
     if (bytes_read < 2)  // command + '\n'
@@ -176,201 +208,57 @@ void RemoteControl::startRead()
     if (cmdlist.size() == 0)
         return;
 
-    // Set new frequency
-    if (cmdlist[0] == "F")
-    {
-        double freq = cmdlist.value(1, "ERR").toDouble(&ok);
-        if (ok)
-        {
-            setNewRemoteFreq((qint64)freq);
-            rc_socket->write("RPRT 0\n");
-        }
-        else
-        {
-            rc_socket->write("RPRT 1\n");
-        }
-    }
-    // Get frequency
-    else if (cmdlist[0] == "f")
-    {
-        rc_socket->write(QString("%1\n").arg(rc_freq).toLatin1());
-    }
-    else if (cmdlist[0] == "c")
+    QString cmd = cmdlist[0];
+    if (cmd == "f")
+        answer = cmd_get_freq();
+    else if (cmd == "F")
+        answer = cmd_set_freq(cmdlist);
+    else if (cmd == "m")
+        answer = cmd_get_mode();
+    else if (cmd == "M")
+        answer = cmd_set_mode(cmdlist);
+    else if (cmd == "l")
+        answer = cmd_get_level(cmdlist);
+    else if (cmd == "L")
+        answer = cmd_set_level(cmdlist);
+    else if (cmd == "u")
+        answer = cmd_get_func(cmdlist);
+    else if (cmd == "U")
+        answer = cmd_set_func(cmdlist);
+    else if (cmd == "v")
+        answer = cmd_get_vfo();
+    else if (cmd == "V")
+        answer = cmd_set_vfo(cmdlist);
+    else if (cmd == "s")
+        answer = cmd_get_split_vfo();
+    else if (cmd == "S")
+        answer = cmd_set_split_vfo();
+    else if (cmd == "_")
+        answer = cmd_get_info();
+    else if (cmd == "AOS")
+        answer = cmd_AOS();
+    else if (cmd == "LOS")
+        answer = cmd_LOS();
+    else if (cmd == "LNB_LO")
+        answer = cmd_lnb_lo(cmdlist);
+    else if (cmd == "\\dump_state")
+        answer = cmd_dump_state();
+    else if (cmd == "q" || cmd == "Q")
     {
         // FIXME: for now we assume 'close' command
         rc_socket->close();
+        rc_socket->deleteLater();
+        rc_socket = 0;
+        return;
     }
-    // Set level
-    else if (cmdlist[0] == "L")
-    {
-        QString lvl = cmdlist.value(1, "");
-        if (lvl == "?")
-        {
-            rc_socket->write("SQL\n");
-        }
-        else if (lvl.compare("SQL", Qt::CaseInsensitive) == 0)
-        {
-            double squelch = cmdlist.value(2, "ERR").toDouble(&ok);
-            if (ok)
-            {
-                rc_socket->write("RPRT 0\n");
-                squelch_level = std::max<double>(-150, std::min<double>(0, squelch));
-                emit newSquelchLevel(squelch_level);
-            }
-            else
-            {
-                rc_socket->write("RPRT 1\n");
-            }
-        }
-        else
-        {
-            rc_socket->write("RPRT 1\n");
-        }
-    }
-    // Get level
-    else if (cmdlist[0] == "l")
-    {
-        QString lvl = cmdlist.value(1, "");
-        if (lvl == "?")
-            rc_socket->write("SQL STRENGTH\n");
-        else if (lvl.compare("STRENGTH", Qt::CaseInsensitive) == 0 || lvl.isEmpty())
-            rc_socket->write(QString("%1\n").arg(signal_level, 0, 'f', 1).toLatin1());
-        else if (lvl.compare("SQL", Qt::CaseInsensitive) == 0)
-            rc_socket->write(QString("%1\n").arg(squelch_level, 0, 'f', 1).toLatin1());
-        else
-            rc_socket->write("RPRT 1\n");
-    }
-    // Mode and filter
-    else if (cmdlist[0] == "M")
-    {
-        int mode = modeStrToInt(cmdlist.value(1, ""));
-        if (mode == -1)
-        {
-            // invalid string
-            rc_socket->write("RPRT 1\n");
-        }
-        else
-        {
-            rc_socket->write("RPRT 0\n");
-            rc_mode = mode;
-
-            if (rc_mode < 2)
-                audio_recorder_status = false;
-
-            emit newMode(rc_mode);
-        }
-    }
-    else if (cmdlist[0] == "m")
-    {
-        rc_socket->write(QString("%1\n").arg(intToModeStr(rc_mode)).toLatin1());
-    }
-    else if (cmdlist[0] == "U")
-    {
-        QString func = cmdlist.value(1, "");
-        bool ok;
-        int status = cmdlist.value(2, "").toInt(&ok);
-
-        if (func == "?")
-        {
-            rc_socket->write("RECORD\n");
-        }
-        else if (func == "" || !ok)
-        {
-            rc_socket->write("RPRT 1\n");
-        }
-        else if (func.compare("RECORD", Qt::CaseInsensitive) == 0)
-        {
-            if (rc_mode < 2 || !receiver_running)
-            {
-                rc_socket->write("RPRT 1\n");
-            }
-            else
-            {
-                rc_socket->write("RPRT 0\n");
-                audio_recorder_status = status;
-                if (status)
-                    emit startAudioRecorderEvent();
-                else
-                    emit stopAudioRecorderEvent();
-            }
-        }
-        else
-        {
-            rc_socket->write("RPRT 1\n");
-        }
-    }
-    else if (cmdlist[0] == "u")
-    {
-        QString func = cmdlist.value(1, "");
-
-        if (func == "?")
-            rc_socket->write("RECORD\n");
-        else if (func.compare("RECORD", Qt::CaseInsensitive) == 0)
-            rc_socket->write(QString("%1\n").arg(audio_recorder_status).toLatin1());
-        else
-            rc_socket->write("RPRT 1\n");
-    }
-
-
-    // Gpredict / Gqrx specific commands:
-    //   AOS  - satellite AOS event
-    //   LOS  - satellite LOS event
-    else if (cmdlist[0] == "AOS")
-    {
-        if (rc_mode >= 2 && receiver_running)
-        {
-            emit startAudioRecorderEvent();
-            audio_recorder_status = true;
-        }
-        rc_socket->write("RPRT 0\n");
-
-    }
-    else if (cmdlist[0] == "LOS")
-    {
-        emit stopAudioRecorderEvent();
-        audio_recorder_status = false;
-        rc_socket->write("RPRT 0\n");
-
-    }
-
-    /* dump_state used by some clients, e.g. xdx
-     * For now just some quick hack that works taken from
-     * https://github.com/hexameron/rtl-sdrangelove/blob/master/plugins/channel/tcpsrc/rigctl.cpp
-     *
-     * More info in tests/rigctl_parse.c
-     */
-    else if (cmdlist[0] == "\\dump_state")
-    {
-        rc_socket->write("0\n"
-                         "2\n"
-                         "1\n"
-                         "150000.000000 30000000.000000  0x900af -1 -1 0x10000003 0x3\n"
-                         "0 0 0 0 0 0 0\n"
-                         "150000.000000 30000000.000000  0x900af -1 -1 0x10000003 0x3\n"
-                         "0 0 0 0 0 0 0\n"
-                         "0 0\n"
-                         "0 0\n"
-                         "0\n"
-                         "0\n"
-                         "0\n"
-                         "0\n"
-                         "\n"
-                         "\n"
-                         "0x0\n"
-                         "0x0\n"
-                         "0x0\n"
-                         "0x0\n"
-                         "0x0\n"
-                         "0\n");
-    }
-
     else
     {
         // print unknown command and respond with an error
-        qWarning() << "Unknown remote command:"
-                << cmdlist;
-        rc_socket->write("RPRT 1\n");
+        qWarning() << "Unknown remote command:" << cmdlist;
+        answer = QString("RPRT 1\n");
     }
+
+    rc_socket->write(answer.toLatin1());
 }
 
 /*! \brief Slot called when the receiver is tuned to a new frequency.
@@ -390,10 +278,18 @@ void RemoteControl::setFilterOffset(qint64 freq)
     rc_filter_offset = freq;
 }
 
+/*! \brief Slot called when the LNB LO frequency has changed
+ *  \param freq_mhz new LNB LO frequency in MHz
+ */
+void RemoteControl::setLnbLo(double freq_mhz)
+{
+    rc_lnb_lo_mhz = freq_mhz;
+}
+
 void RemoteControl::setBandwidth(qint64 bw)
 {
     // we want to leave some margin
-    bw_half = 0.9 * (bw / 2);
+    bw_half = (qint64)(0.9f * (bw / 2.f));
 }
 
 /*! \brief Set signal level in dBFS. */
@@ -407,25 +303,39 @@ void RemoteControl::setMode(int mode)
 {
     rc_mode = mode;
 
-    if (rc_mode < 2)
+    if (rc_mode == 0)
         audio_recorder_status = false;
+}
+
+/*! \brief Set passband (from mainwindow). */
+void RemoteControl::setPassband(int passband_lo, int passband_hi)
+{
+    rc_passband_lo = passband_lo;
+    rc_passband_hi = passband_hi;
 }
 
 /*! \brief New remote frequency received. */
 void RemoteControl::setNewRemoteFreq(qint64 freq)
 {
     qint64 delta = freq - rc_freq;
+    qint64 bwh_eff = 0.8f * (float)bw_half;
 
-    if (std::abs(rc_filter_offset + delta) < bw_half)
+    rc_filter_offset += delta;
+    if ((rc_filter_offset > 0 && rc_filter_offset + rc_passband_hi < bwh_eff) ||
+        (rc_filter_offset < 0 && rc_filter_offset + rc_passband_lo > -bwh_eff))
     {
         // move filter offset
-        rc_filter_offset += delta;
         emit newFilterOffset(rc_filter_offset);
     }
     else
     {
-        // move rx freqeucy and let MainWindow deal with it
-        // (will usually change hardware PLL)
+        // moving filter offset would push it too close to or beyond the edge
+        // move it close to the center and adjust hardware freq
+        if (rc_filter_offset < 0)
+            rc_filter_offset = -0.2f * bwh_eff;
+        else
+            rc_filter_offset = 0.2f * bwh_eff;
+        emit newFilterOffset(rc_filter_offset);
         emit newFrequency(freq);
     }
 
@@ -441,7 +351,7 @@ void RemoteControl::setSquelchLevel(double level)
 /*! \brief Start audio recorder (from mainwindow). */
 void RemoteControl::startAudioRecorder(QString unused)
 {
-    if (rc_mode >= 2)
+    if (rc_mode > 0)
         audio_recorder_status = true;
 }
 
@@ -503,15 +413,23 @@ int RemoteControl::modeStrToInt(QString mode_str)
     }
     else if (mode_str.compare("CW", Qt::CaseInsensitive) == 0)
     {
-        mode_int = 8;
+        mode_int = 9;
+        hamlib_compatible = true;
     }
     else if (mode_str.compare("CWL", Qt::CaseInsensitive) == 0)
     {
         mode_int = 8;
+        hamlib_compatible = false;
+    }
+    else if (mode_str.compare("CWR", Qt::CaseInsensitive) == 0)
+    {
+        mode_int = 8;
+        hamlib_compatible = true;
     }
     else if (mode_str.compare("CWU", Qt::CaseInsensitive) == 0)
     {
         mode_int = 9;
+        hamlib_compatible = false;
     }
     else if (mode_str.compare("WFM_ST_OIRT", Qt::CaseInsensitive) == 0)
     {
@@ -564,11 +482,11 @@ QString RemoteControl::intToModeStr(int mode)
         break;
 
     case 8:
-        mode_str = "CWL";
+        mode_str = (hamlib_compatible) ? "CWR" : "CWL";
         break;
 
     case 9:
-        mode_str = "CWU";
+        mode_str = (hamlib_compatible) ? "CW" : "CWU";
         break;
 
     case 10:
@@ -581,4 +499,328 @@ QString RemoteControl::intToModeStr(int mode)
     }
 
     return mode_str;
+}
+
+/* Get frequency */
+QString RemoteControl::cmd_get_freq() const
+{
+    return QString("%1\n").arg(rc_freq);
+}
+
+/* Set new frequency */
+QString RemoteControl::cmd_set_freq(QStringList cmdlist)
+{
+    bool ok;
+    double freq = cmdlist.value(1, "ERR").toDouble(&ok);
+
+    if (ok)
+    {
+        setNewRemoteFreq((qint64)freq);
+        return QString("RPRT 0\n");
+    }
+
+    return QString("RPRT 1\n");
+}
+
+/* Get mode and passband */
+QString RemoteControl::cmd_get_mode()
+{
+    return QString("%1\n%2\n")
+                   .arg(intToModeStr(rc_mode))
+                   .arg(rc_passband_hi - rc_passband_lo);
+}
+
+/* Set mode and passband */
+QString RemoteControl::cmd_set_mode(QStringList cmdlist)
+{
+    QString answer;
+    QString cmd_arg = cmdlist.value(1, "");
+
+    if (cmd_arg == "?")
+        answer = QString("OFF RAW AM FM WFM WFM_ST WFM_ST_OIRT LSB USB CW CWU CWR CWL\n");
+    else
+    {
+        int mode = modeStrToInt(cmd_arg);
+        if (mode == -1)
+        {
+            // invalid mode string
+            answer = QString("RPRT 1\n");
+        }
+        else
+        {
+            rc_mode = mode;
+            emit newMode(rc_mode);
+
+            int passband = cmdlist.value(2, "0").toInt();
+            if ( passband != 0 )
+                emit newPassband(passband);
+
+            if (rc_mode == 0)
+                audio_recorder_status = false;
+
+            answer = QString("RPRT 0\n");
+        }
+    }
+    return answer;
+}
+
+/* Get level */
+QString RemoteControl::cmd_get_level(QStringList cmdlist)
+{
+    QString answer;
+    QString lvl = cmdlist.value(1, "");
+
+    if (lvl == "?")
+       answer = QString("SQL STRENGTH\n");
+    else if (lvl.compare("STRENGTH", Qt::CaseInsensitive) == 0 || lvl.isEmpty())
+       answer = QString("%1\n").arg(signal_level, 0, 'f', 1);
+    else if (lvl.compare("SQL", Qt::CaseInsensitive) == 0)
+       answer = QString("%1\n").arg(squelch_level, 0, 'f', 1);
+    else
+       answer = QString("RPRT 1\n");
+
+    return answer;
+}
+
+/* Set level */
+QString RemoteControl::cmd_set_level(QStringList cmdlist)
+{
+    QString answer;
+    QString lvl = cmdlist.value(1, "");
+
+    if (lvl == "?")
+        answer = QString("SQL\n");
+    else if (lvl.compare("SQL", Qt::CaseInsensitive) == 0)
+    {
+        bool ok;
+        double squelch = cmdlist.value(2, "ERR").toDouble(&ok);
+        if (ok)
+        {
+            answer = QString("RPRT 0\n");
+            squelch_level = std::max<double>(-150, std::min<double>(0, squelch));
+            emit newSquelchLevel(squelch_level);
+        }
+        else
+        {
+            answer = QString("RPRT 1\n");
+        }
+    }
+    else
+    {
+        answer = QString("RPRT 1\n");
+    }
+
+    return answer;
+}
+
+/* Get function */
+QString RemoteControl::cmd_get_func(QStringList cmdlist)
+{
+    QString answer;
+    QString func = cmdlist.value(1, "");
+
+    if (func == "?")
+        answer = QString("RECORD\n");
+    else if (func.compare("RECORD", Qt::CaseInsensitive) == 0)
+        answer = QString("%1\n").arg(audio_recorder_status);
+    else
+        answer = QString("RPRT 1\n");
+
+    return answer;
+}
+
+/* Set function */
+QString RemoteControl::cmd_set_func(QStringList cmdlist)
+{
+    bool ok;
+    QString answer;
+    QString func = cmdlist.value(1, "");
+    int     status = cmdlist.value(2, "ERR").toInt(&ok);
+
+    if (func == "?")
+    {
+        answer = QString("RECORD\n");
+    }
+    else if ((func.compare("RECORD", Qt::CaseInsensitive) == 0) && ok)
+    {
+        if (rc_mode == 0 || !receiver_running)
+        {
+            answer = QString("RPRT 1\n");
+        }
+        else
+        {
+            answer = QString("RPRT 0\n");
+            audio_recorder_status = status;
+            if (status)
+                emit startAudioRecorderEvent();
+            else
+                emit stopAudioRecorderEvent();
+        }
+    }
+    else
+    {
+        answer = QString("RPRT 1\n");
+    }
+
+    return answer;
+}
+
+/* Get current 'VFO' (fake, only for hamlib) */
+QString RemoteControl::cmd_get_vfo() const
+{
+    return QString("VFOA\n");
+};
+
+/* Set 'VFO' (fake, only for hamlib) */
+QString RemoteControl::cmd_set_vfo(QStringList cmdlist)
+{
+    QString cmd_arg = cmdlist.value(1, "");
+    QString answer;
+
+    if (cmd_arg == "?")
+        answer = QString("VFOA\n");
+    else if (cmd_arg == "VFOA")
+        answer = QString("RPRT 0\n");
+    else
+        answer = QString("RPRT 1\n");
+
+    return answer;
+};
+
+/* Get 'Split' mode (fake, only for hamlib) */
+QString RemoteControl::cmd_get_split_vfo() const
+{
+    return QString("0\nVFOA\n");
+};
+
+/* Set 'Split' mode (fake, only for hamlib) */
+QString RemoteControl::cmd_set_split_vfo()
+{
+    return QString("RPRT 1\n");
+}
+
+/* Get info */
+QString RemoteControl::cmd_get_info() const
+{
+    return QString("Gqrx %1\n").arg(VERSION);
+};
+
+/* Gpredict / Gqrx specific command: AOS - satellite AOS event */
+QString RemoteControl::cmd_AOS()
+{
+    if (rc_mode > 0 && receiver_running)
+    {
+        emit startAudioRecorderEvent();
+        audio_recorder_status = true;
+    }
+    return QString("RPRT 0\n");
+}
+
+/* Gpredict / Gqrx specific command: LOS - satellite LOS event */
+QString RemoteControl::cmd_LOS()
+{
+    emit stopAudioRecorderEvent();
+    audio_recorder_status = false;
+    return QString("RPRT 0\n");
+}
+
+/* Set the LNB LO value */
+QString RemoteControl::cmd_lnb_lo(QStringList cmdlist)
+{
+    if(cmdlist.size() == 2)
+    {
+        bool ok;
+        qint64 freq = cmdlist[1].toLongLong(&ok);
+
+        if (ok)
+        {
+            rc_lnb_lo_mhz = freq / 1e6;
+            emit newLnbLo(rc_lnb_lo_mhz);
+            return QString("RPRT 0\n");
+        }
+
+        return QString("RPRT 1\n");
+    }
+    else
+    {
+        return QString("%1\n").arg((qint64)(rc_lnb_lo_mhz * 1e6));
+    }
+}
+
+/*
+ * '\dump_state' used by hamlib clients, e.g. xdx, fldigi, rigctl and etc
+ * More info:
+ *  https://github.com/N0NB/hamlib/blob/master/include/hamlib/rig.h (bit fields)
+ *  https://github.com/N0NB/hamlib/blob/master/dummy/netrigctl.c
+ */
+QString RemoteControl::cmd_dump_state() const
+{
+    return QString(
+        /* rigctl protocol version */
+        "0\n"
+        /* rigctl model */
+        "2\n"
+        /* ITU region */
+        "1\n"
+        /* RX/TX frequency ranges
+         * start, end, modes, low_power, high_power, vfo, ant
+         *  start/end - Start/End frequency [Hz]
+         *  modes - Bit field of RIG_MODE's (AM|CW|CWR|USB|LSB|FM|WFM)
+         *  low_power/high_power - Lower/Higher RF power in mW,
+         *                         -1 for no power (ie. rx list)
+         *  vfo - VFO list equipped with this range (RIG_VFO_A)
+         *  ant - Antenna list equipped with this range, 0 means all
+         *  FIXME: limits can be gets from receiver::get_rf_range()
+         */
+        "0.000000 10000000000.000000 0xef -1 -1 0x1 0x0\n"
+        /* End of RX frequency ranges. */
+        "0 0 0 0 0 0 0\n"
+        /* End of TX frequency ranges. The Gqrx is reciver only. */
+        "0 0 0 0 0 0 0\n"
+        /* Tuning steps: modes, tuning_step */
+        "0xef 1\n"
+        "0xef 0\n"
+        /* End of tuning steps */
+        "0 0\n"
+        /* Filter sizes: modes, width
+         * FIXME: filter can be gets from filter_preset_table
+         */
+        "0x82 500\n"    /* CW | CWR normal */
+        "0x82 200\n"    /* CW | CWR narrow */
+        "0x82 2000\n"   /* CW | CWR wide */
+        "0x21 10000\n"  /* AM | FM normal */
+        "0x21 5000\n"   /* AM | FM narrow */
+        "0x21 20000\n"  /* AM | FM wide */
+        "0x0c 2700\n"   /* SSB normal */
+        "0x0c 1400\n"   /* SSB narrow */
+        "0x0c 3900\n"   /* SSB wide */
+        "0x40 160000\n" /* WFM normal */
+        "0x40 120000\n" /* WFM narrow */
+        "0x40 200000\n" /* WFM wide */
+        /* End of filter sizes  */
+        "0 0\n"
+        /* max_rit  */
+        "0\n"
+        /* max_xit */
+        "0\n"
+        /* max_ifshift */
+        "0\n"
+        /* Announces (bit field list) */
+        "0\n" /* RIG_ANN_NONE */
+        /* Preamp list in dB, 0 terminated */
+        "0\n"
+        /* Attenuator list in dB, 0 terminated */
+        "0\n"
+        /* Bit field list of get functions */
+        "0\n" /* RIG_FUNC_NONE */
+        /* Bit field list of set functions */
+        "0\n" /* RIG_FUNC_NONE */
+        /* Bit field list of get level */
+        "0x40000020\n" /* RIG_LEVEL_SQL | RIG_LEVEL_STRENGTH */
+        /* Bit field list of set level */
+        "0x20\n"       /* RIG_LEVEL_SQL */
+        /* Bit field list of get parm */
+        "0\n" /* RIG_PARM_NONE */
+        /* Bit field list of set parm */
+        "0\n" /* RIG_PARM_NONE */);
 }

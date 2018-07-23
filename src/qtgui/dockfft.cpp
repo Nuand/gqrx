@@ -3,7 +3,7 @@
  * Gqrx SDR: Software defined radio receiver powered by GNU Radio and Qt
  *           http://gqrx.dk/
  *
- * Copyright 2011-2013 Alexandru Csete OZ9AEC.
+ * Copyright 2011-2016 Alexandru Csete OZ9AEC.
  *
  * Gqrx is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,14 +27,13 @@
 #include "dockfft.h"
 #include "ui_dockfft.h"
 
-#define DEFAULT_FFT_MAXIMUM_DB   -0.0
-#define DEFAULT_FFT_MINIMUM_DB   -135.0
-#define DEFAULT_FFT_RATE         25
-#define DEFAULT_FFT_SIZE         8192
-#define DEFAULT_FFT_SPLIT        35
-#define DEFAULT_FFT_AVG          75
-#define DEFAULT_FFT_REF_LEVEL    0
-#define DEFAULT_FFT_RANGE        130
+#define DEFAULT_FFT_MAX_DB     -0
+#define DEFAULT_FFT_MIN_DB     -135
+#define DEFAULT_FFT_RATE        25
+#define DEFAULT_FFT_SIZE        8192
+#define DEFAULT_FFT_WINDOW      1       // Hann
+#define DEFAULT_FFT_SPLIT       35
+#define DEFAULT_FFT_AVG         75
 
 DockFft::DockFft(QWidget *parent) :
     QDockWidget(parent),
@@ -58,6 +57,7 @@ DockFft::DockFft(QWidget *parent) :
     // buttons can be smaller than 50x32
     ui->peakDetectionButton->setMinimumSize(48, 24);
     ui->peakHoldButton->setMinimumSize(48, 24);
+    ui->lockButton->setMinimumSize(48, 24);
     ui->resetButton->setMinimumSize(48, 24);
     ui->centerButton->setMinimumSize(48, 24);
     ui->demodButton->setMinimumSize(48, 24);
@@ -66,6 +66,7 @@ DockFft::DockFft(QWidget *parent) :
 #endif
 
     m_sample_rate = 0.f;
+    m_pand_last_modified = false;
 
     // Add predefined gqrx colors to chooser.
     ui->colorPicker->insertColor(QColor(0xFF,0xFF,0xFF,0xFF), "White");
@@ -200,6 +201,12 @@ void DockFft::saveSettings(QSettings *settings)
     else
         settings->remove("fft_rate");
 
+    intval = ui->fftWinComboBox->currentIndex();
+    if (intval != DEFAULT_FFT_WINDOW)
+        settings->setValue("fft_window", intval);
+    else
+        settings->remove("fft_window");
+
     if (ui->fftAvgSlider->value() != DEFAULT_FFT_AVG)
         settings->setValue("averaging", ui->fftAvgSlider->value());
     else
@@ -221,15 +228,36 @@ void DockFft::saveSettings(QSettings *settings)
     else
         settings->remove("pandapter_fill");
 
-    if (ui->reflevelSlider->value() != DEFAULT_FFT_REF_LEVEL)
-        settings->setValue("reference_level", ui->reflevelSlider->value());
+    // dB ranges
+    intval = ui->pandRangeSlider->minimumValue();
+    if (intval == DEFAULT_FFT_MIN_DB)
+        settings->remove("pandapter_min_db");
     else
-        settings->remove("reference_level");
+        settings->setValue("pandapter_min_db", intval);
 
-    if (ui->rangeSlider->value() != DEFAULT_FFT_RANGE)
-        settings->setValue("fft_range", ui->rangeSlider->value());
+    intval = ui->pandRangeSlider->maximumValue();
+    if (intval == DEFAULT_FFT_MAX_DB)
+        settings->remove("pandapter_max_db");
     else
-        settings->remove("fft_range");
+        settings->setValue("pandapter_max_db", intval);
+
+    intval = ui->wfRangeSlider->minimumValue();
+    if (intval == DEFAULT_FFT_MIN_DB)
+        settings->remove("waterfall_min_db");
+    else
+        settings->setValue("waterfall_min_db", intval);
+
+    intval = ui->wfRangeSlider->maximumValue();
+    if (intval == DEFAULT_FFT_MAX_DB)
+        settings->remove("waterfall_max_db");
+    else
+        settings->setValue("waterfall_max_db", intval);
+
+    // pandapter and waterfall ranges locked together
+    if (ui->lockButton->isChecked())
+        settings->setValue("db_ranges_locked", true);
+    else
+        settings->remove("db_ranges_locked");
 
     settings->endGroup();
 }
@@ -237,10 +265,11 @@ void DockFft::saveSettings(QSettings *settings)
 /** Read FFT settings. */
 void DockFft::readSettings(QSettings *settings)
 {
-    int intval;
-    bool bool_val = false;
-    bool conv_ok = false;
-    QColor color;
+    int     intval;
+    int     fft_min, fft_max;
+    bool    bool_val = false;
+    bool    conv_ok = false;
+    QColor  color;
 
     if (!settings)
         return;
@@ -254,6 +283,10 @@ void DockFft::readSettings(QSettings *settings)
     intval = settings->value("fft_size", DEFAULT_FFT_SIZE).toInt(&conv_ok);
     if (conv_ok)
         setFftSize(intval);
+
+    intval = settings->value("fft_window", DEFAULT_FFT_WINDOW).toInt(&conv_ok);
+    if (conv_ok)
+        ui->fftWinComboBox->setCurrentIndex(intval);
 
     intval = settings->value("averaging", DEFAULT_FFT_AVG).toInt(&conv_ok);
     if (conv_ok)
@@ -269,25 +302,55 @@ void DockFft::readSettings(QSettings *settings)
     bool_val = settings->value("pandapter_fill", false).toBool();
     ui->fillButton->setChecked(bool_val);
 
-    int ref = settings->value("reference_level", DEFAULT_FFT_REF_LEVEL).toInt(&conv_ok);
-    int range = settings->value("fft_range", DEFAULT_FFT_RANGE).toInt(&conv_ok);
-    setFftRange(ref, range);
-    emit fftRangeChanged(ui->reflevelSlider->value(), ui->rangeSlider->value());
+    // delete old dB settings from config
+    if (settings->contains("reference_level"))
+        settings->remove("reference_level");
+
+    if (settings->contains("fft_range"))
+        settings->remove("fft_range");
+
+    fft_max = settings->value("pandapter_max_db", DEFAULT_FFT_MAX_DB).toInt();
+    fft_min = settings->value("pandapter_min_db", DEFAULT_FFT_MIN_DB).toInt();
+    setPandapterRange(fft_min, fft_max);
+    emit pandapterRangeChanged((float) fft_min, (float) fft_max);
+
+    fft_max = settings->value("waterfall_max_db", DEFAULT_FFT_MAX_DB).toInt();
+    fft_min = settings->value("waterfall_min_db", DEFAULT_FFT_MIN_DB).toInt();
+    setWaterfallRange(fft_min, fft_max);
+    emit waterfallRangeChanged((float) fft_min, (float) fft_max);
+
+    bool_val = settings->value("db_ranges_locked", false).toBool();
+    ui->lockButton->setChecked(bool_val);
 
     settings->endGroup();
 }
 
-void DockFft::setFftRange(float reflevel, float range)
+void DockFft::setPandapterRange(float min, float max)
 {
-    ui->reflevelSlider->blockSignals(true);
-    ui->reflevelSlider->setValue((int)reflevel);
-    ui->reflevelSlider->blockSignals(false);
-    ui->reflevelLabel->setText(QString("%1 dB").arg((int)reflevel));
+    ui->pandRangeSlider->blockSignals(true);
+    ui->pandRangeSlider->setValues((int) min, (int) max);
+    if (ui->lockButton->isChecked())
+        ui->wfRangeSlider->setValues((int) min, (int) max);
+    m_pand_last_modified = true;
+    ui->pandRangeSlider->blockSignals(false);
+}
 
-    ui->rangeSlider->blockSignals(true);
-    ui->rangeSlider->setValue((int)range);
-    ui->rangeSlider->blockSignals(false);
-    ui->rangeLabel->setText(QString("%1 dB").arg((int)range));
+void DockFft::setWaterfallRange(float min, float max)
+{
+    ui->wfRangeSlider->blockSignals(true);
+    ui->wfRangeSlider->setValues((int) min, (int) max);
+    if (ui->lockButton->isChecked())
+        ui->pandRangeSlider->setValues((int) min, (int) max);
+    m_pand_last_modified = false;
+    ui->wfRangeSlider->blockSignals(false);
+}
+
+void DockFft::setZoomLevel(float level)
+{
+    ui->fftZoomSlider->blockSignals(true);
+    ui->fftZoomSlider->setValue((int) level);
+    ui->zoomLevelLabel->setText(QString("%1x").arg((int) level));
+    ui->fftZoomSlider->blockSignals(false);
 }
 
 /** FFT size changed. */
@@ -308,10 +371,16 @@ void DockFft::on_fftRateComboBox_currentIndexChanged(const QString & text)
     updateInfoLabels();
 }
 
+void DockFft::on_fftWinComboBox_currentIndexChanged(int index)
+{
+    emit fftWindowChanged(index);
+}
 
 static const quint64 wf_span_table[] =
 {
     0,              // Auto
+    1*60*1000,      // 1 minute
+    2*60*1000,      // 2 minutes
     5*60*1000,      // 5 minutes
     10*60*1000,     // 10 minutes
     15*60*1000,     // 15 minutes
@@ -329,7 +398,7 @@ static const quint64 wf_span_table[] =
 /** Waterfall time span changed. */
 void DockFft::on_wfSpanComboBox_currentIndexChanged(int index)
 {
-    if (index < 0 || index > 12)
+    if (index < 0 || index > 14)
         return;
 
     emit wfSpanChanged(wf_span_table[index]);
@@ -367,22 +436,28 @@ void DockFft::on_fftZoomSlider_valueChanged(int level)
     emit fftZoomChanged((float)level);
 }
 
-/** Reference level changed */
-void DockFft::on_reflevelSlider_valueChanged(int value)
+void DockFft::on_pandRangeSlider_valuesChanged(int min, int max)
 {
-    ui->reflevelLabel->setText(QString("%1 dB").arg(value));
-    emit fftRangeChanged(value, ui->rangeSlider->value());
+    if (ui->lockButton->isChecked())
+        ui->wfRangeSlider->setValues(min, max);
+
+    m_pand_last_modified = true;
+    emit pandapterRangeChanged((float) min, (float) max);
 }
 
-/** FFT plot range changed */
-void DockFft::on_rangeSlider_valueChanged(int value)
+void DockFft::on_wfRangeSlider_valuesChanged(int min, int max)
 {
-    ui->rangeLabel->setText(QString("%1 dB").arg(value));
-    emit fftRangeChanged(ui->reflevelSlider->value(), value);
+    if (ui->lockButton->isChecked())
+        ui->pandRangeSlider->setValues(min, max);
+
+    m_pand_last_modified = false;
+    emit waterfallRangeChanged((float) min, (float) max);
 }
 
 void DockFft::on_resetButton_clicked(void)
 {
+    ui->zoomLevelLabel->setText(QString("1x"));
+    ui->fftZoomSlider->setValue(0);
     emit resetFftZoom();
 }
 
@@ -418,6 +493,26 @@ void DockFft::on_peakHoldButton_toggled(bool checked)
 void DockFft::on_peakDetectionButton_toggled(bool checked)
 {
     emit peakDetectionToggled(checked);
+}
+
+/** lock button toggled */
+void DockFft::on_lockButton_toggled(bool checked)
+{
+    if (checked)
+    {
+        if (m_pand_last_modified)
+        {
+            int min = ui->pandRangeSlider->minimumValue();
+            int max = ui->pandRangeSlider->maximumValue();
+            ui->wfRangeSlider->setPositions(min, max);
+        }
+        else
+        {
+            int min = ui->wfRangeSlider->minimumValue();
+            int max = ui->wfRangeSlider->maximumValue();
+            ui->pandRangeSlider->setPositions(min, max);
+        }
+    }
 }
 
 /** Update RBW and FFT overlab labels */

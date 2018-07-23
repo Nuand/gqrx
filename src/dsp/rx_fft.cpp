@@ -256,7 +256,7 @@ void rx_fft_c::set_fft_size(unsigned int fftsize)
 }
 
 /*! \brief Get currently used FFT size. */
-unsigned int rx_fft_c::get_fft_size()
+unsigned int rx_fft_c::get_fft_size() const
 {
     return d_fftsize;
 }
@@ -272,7 +272,7 @@ void rx_fft_c::set_window_type(int wintype)
 
     d_wintype = wintype;
 
-    if ((d_wintype < gr::filter::firdes::WIN_HAMMING) || (d_wintype > gr::filter::firdes::WIN_BLACKMAN_hARRIS))
+    if ((d_wintype < gr::filter::firdes::WIN_HAMMING) || (d_wintype > gr::filter::firdes::WIN_FLATTOP))
     {
         d_wintype = gr::filter::firdes::WIN_HAMMING;
     }
@@ -282,7 +282,7 @@ void rx_fft_c::set_window_type(int wintype)
 }
 
 /*! \brief Get currently used window type. */
-int rx_fft_c::get_window_type()
+int rx_fft_c::get_window_type() const
 {
     return d_wintype;
 }
@@ -429,7 +429,7 @@ void rx_fft_f::set_fft_size(unsigned int fftsize)
 }
 
 /*! \brief Get currently used FFT size. */
-unsigned int rx_fft_f::get_fft_size()
+unsigned int rx_fft_f::get_fft_size() const
 {
     return d_fftsize;
 }
@@ -445,7 +445,7 @@ void rx_fft_f::set_window_type(int wintype)
 
     d_wintype = wintype;
 
-    if ((d_wintype < gr::filter::firdes::WIN_HAMMING) || (d_wintype > gr::filter::firdes::WIN_BLACKMAN_hARRIS))
+    if ((d_wintype < gr::filter::firdes::WIN_HAMMING) || (d_wintype > gr::filter::firdes::WIN_FLATTOP))
     {
         d_wintype = gr::filter::firdes::WIN_HAMMING;
     }
@@ -455,7 +455,7 @@ void rx_fft_f::set_window_type(int wintype)
 }
 
 /*! \brief Get currently used window type. */
-int rx_fft_f::get_window_type()
+int rx_fft_f::get_window_type() const
 {
     return d_wintype;
 }

@@ -22,8 +22,12 @@
  */
 #include <iostream>
 #include <portaudio.h>
+#include <string>
+#include <vector>
+
 #include "device_list.h"
 
+using namespace std;
 
 portaudio_device::portaudio_device(unsigned int idx, string name, string desc) :
     d_index(idx), d_name(name), d_description(desc)
@@ -58,8 +62,6 @@ int portaudio_device_list::populate_device_list()
     const   PaDeviceInfo *dev_info;
     PaError err;
 
-    Pa_Initialize();
-
     std::cout << Pa_GetVersionText() << " (version " << Pa_GetVersion() << ")" << std::endl;
             
     num_dev = Pa_GetDeviceCount();
@@ -92,16 +94,13 @@ int portaudio_device_list::populate_device_list()
         }
     }
 
-    Pa_Terminate();
     return 0;
 
 error:
-    Pa_Terminate();
     std::cerr << "An error occured while using the portaudio stream" << std::endl;
     std::cerr << "Error number: " << err << std::endl;
     std::cerr << "Error message: " << Pa_GetErrorText(err) << std::endl;
     return err;
-
 }
 
 
@@ -114,4 +113,20 @@ void portaudio_device_list::add_sink(unsigned int idx, string name, string desc)
 void portaudio_device_list::add_source(unsigned int idx, string name, string desc)
 {
     d_sources.push_back(portaudio_device(idx, name, desc));
+}
+
+PaDeviceIndex portaudio_device_list::get_output_device_index(const string name) const
+{
+    vector<portaudio_device>::const_iterator      it;
+
+    if (name.empty())
+        return -1;
+
+    for (it = d_sinks.begin(); it < d_sinks.end(); it++)
+    {
+        if (it->get_name() == name)
+            return it->get_index();
+    }
+
+    return -1;
 }

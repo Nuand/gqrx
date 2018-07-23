@@ -4,14 +4,21 @@
 #
 # Common options you may want to passs to qmake:
 #
-#    CONFIG+=debug          Enable debug mode
-#    PREFIX=/some/prefix    Installation prefix
-#    BOOST_SUFFIX=-mt       To link against libboost-xyz-mt (needed for pybombs)
+#   AUDIO_BACKEND=portaudio     Use portaudio backend
+#   CONFIG+=debug          Enable debug mode
+#   PREFIX=/some/prefix    Installation prefix
+#   BOOST_SUFFIX=-mt       To link against libboost-xyz-mt (needed for pybombs)
 #--------------------------------------------------------------------------------
 
-QT       += core gui network
-contains(QT_MAJOR_VERSION,5) {
-    QT += widgets
+QT       += core gui network widgets svg
+
+lessThan(QT_MAJOR_VERSION,5) {
+    error("Gqrx requires Qt 5.")
+}
+
+PKGCONFIG_EXISTS = $$system(pkg-config --version)
+isEmpty(PKGCONFIG_EXISTS) {
+    error("Gqrx requires pkg-config to build.")
 }
 
 TEMPLATE = app
@@ -28,10 +35,16 @@ macx {
 CONFIG += link_pkgconfig
 
 unix:!macx {
-    packagesExist(libpulse libpulse-simple) {
-        # Comment out to use gr-audio (not recommended with ALSA and Funcube Dongle Pro)
-        AUDIO_BACKEND = pulse
-        message("Gqrx configured with pulseaudio backend")
+    equals(AUDIO_BACKEND, "portaudio") {
+        !packagesExist(portaudio-2.0) {
+            error("Portaudio backend requires portaudio19-dev package.")
+        }
+    }
+    isEmpty(AUDIO_BACKEND) {
+        packagesExist(libpulse libpulse-simple) {
+            # Comment out to use gr-audio
+            AUDIO_BACKEND = pulseaudio
+        }
     }
 }
 
@@ -44,7 +57,7 @@ QMAKE_CLEAN += gqrx
 
 # make install target
 isEmpty(PREFIX) {
-    message(No prefix given. Using /usr/local)
+    message("No prefix given. Using /usr/local")
     PREFIX=/usr/local
 }
 
@@ -60,13 +73,13 @@ CONFIG(debug, debug|release) {
 
     # Define version string (see below for releases)
     VER = $$system(git describe --abbrev=8)
-    ##VER = 2.5.3
+    ##VER = 2.11.5
 
 } else {
     DEFINES += QT_NO_DEBUG
     DEFINES += QT_NO_DEBUG_OUTPUT
     VER = $$system(git describe --abbrev=1)
-    ##VER = 2.5.3
+    ##VER = 2.11.5
 
     # Release binaries with gr bundled
     # QMAKE_RPATH & co won't work with origin
@@ -89,8 +102,7 @@ SOURCES += \
     src/dsp/afsk1200/costabf.c \
     src/dsp/agc_impl.cpp \
     src/dsp/correct_iq_cc.cpp \
-    src/dsp/filter/decimator.cpp \
-    src/dsp/hbf_decim.cpp \
+    src/dsp/filter/fir_decim.cpp \
     src/dsp/lpf.cpp \
     src/dsp/rds/decoder_impl.cc \
     src/dsp/rds/parser_impl.cc \
@@ -112,6 +124,7 @@ SOURCES += \
     src/qtgui/bookmarks.cpp \
     src/qtgui/bookmarkstablemodel.cpp \
     src/qtgui/bookmarkstaglist.cpp \
+    src/qtgui/ctk/ctkRangeSlider.cpp \
     src/qtgui/demod_options.cpp \
     src/qtgui/dockaudio.cpp \
     src/qtgui/dockbookmarks.cpp \
@@ -141,11 +154,8 @@ HEADERS += \
     src/dsp/afsk1200/filter-i386.h \
     src/dsp/agc_impl.h \
     src/dsp/correct_iq_cc.h \
-    src/dsp/filter/decimator.h \
-    src/dsp/filter/filtercoef_hbf_70.h \
-    src/dsp/filter/filtercoef_hbf_100.h \
-    src/dsp/filter/filtercoef_hbf_140.h \
-    src/dsp/hbf_decim.h \
+    src/dsp/filter/fir_decim.h \
+    src/dsp/filter/fir_decim_coef.h \
     src/dsp/lpf.h \
     src/dsp/rds/api.h \
     src/dsp/rds/parser.h \
@@ -153,6 +163,7 @@ HEADERS += \
     src/dsp/rds/decoder_impl.h \
     src/dsp/rds/parser_impl.h \
     src/dsp/rds/constants.h \
+    src/dsp/rds/tmc_events.h \
     src/dsp/resampler_xx.h \
     src/dsp/rx_agc_xx.h \
     src/dsp/rx_demod_am.h \
@@ -171,6 +182,8 @@ HEADERS += \
     src/qtgui/bookmarks.h \
     src/qtgui/bookmarkstablemodel.h \
     src/qtgui/bookmarkstaglist.h \
+    src/qtgui/ctk/ctkPimpl.h \
+    src/qtgui/ctk/ctkRangeSlider.h \
     src/qtgui/demod_options.h \
     src/qtgui/dockaudio.h \
     src/qtgui/dockbookmarks.h \
@@ -207,7 +220,10 @@ FORMS += \
     src/qtgui/nb_options.ui
 
 # Use pulseaudio (ps: could use equals? undocumented)
-contains(AUDIO_BACKEND, pulse): {
+equals(AUDIO_BACKEND, "pulseaudio"): {
+    message("Gqrx configured with pulseaudio backend.")
+    PKGCONFIG += libpulse libpulse-simple
+    DEFINES += WITH_PULSEAUDIO
     HEADERS += \
         src/pulseaudio/pa_device_list.h \
         src/pulseaudio/pa_sink.h \
@@ -216,18 +232,27 @@ contains(AUDIO_BACKEND, pulse): {
         src/pulseaudio/pa_device_list.cc \
         src/pulseaudio/pa_sink.cc \
         src/pulseaudio/pa_source.cc
-    DEFINES += WITH_PULSEAUDIO
+} else {
+    equals(AUDIO_BACKEND, "portaudio"): {
+        message("Gqrx configured with portaudio backend.")
+        PKGCONFIG += portaudio-2.0
+        DEFINES += WITH_PORTAUDIO
+        HEADERS += \
+            src/portaudio/device_list.h \
+            src/portaudio/portaudio_sink.h
+        SOURCES += \
+            src/portaudio/device_list.cpp \
+            src/portaudio/portaudio_sink.cpp
+    } else {
+        message("Gqrx configured with gnuradio-audio backend.")
+        PKGCONFIG += gnuradio-audio
+    }
 }
 
 macx {
+    # FIXME: Merge into previous one
     HEADERS += src/osxaudio/device_list.h
     SOURCES += src/osxaudio/device_list.cpp
-}
-
-contains(AUDIO_BACKEND, pulse): {
-    PKGCONFIG += libpulse libpulse-simple
-} else {
-    PKGCONFIG += gnuradio-audio
 }
 
 PKGCONFIG += gnuradio-analog \

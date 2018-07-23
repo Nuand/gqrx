@@ -64,41 +64,43 @@ class DockInputCtl : public QDockWidget
     Q_OBJECT
 
 public:
-    explicit DockInputCtl(QWidget *parent = 0);
+    explicit DockInputCtl(QWidget * parent = 0);
     ~DockInputCtl();
 
-    void readSettings(QSettings *settings);
-    void saveSettings(QSettings *settings);
+    void    readSettings(QSettings * settings);
+    void    saveSettings(QSettings * settings);
 
-    void  setLnbLo(double freq_mhz);
-    double lnbLo();
+    double  lnbLo();
+    void    readLnbLoFromSettings(QSettings * settings);
 
-    void setGain(QString &name, double value);
-    double gain(QString &name);
+    void    setGain(QString &name, double value);
+    double  gain(QString &name);
 
-    void setAgc(bool enabled);
-    bool agc();
+    void    setAgc(bool enabled);
+    bool    agc();
 
-    void setFreqCorr(double corr);
-    double freqCorr();
+    void    setFreqCorr(double corr);
+    double  freqCorr();
 
-    void setIqSwap(bool reversed);
-    bool iqSwap(void);
+    void    setIqSwap(bool reversed);
+    bool    iqSwap(void);
 
-    void setDcCancel(bool enabled);
-    bool dcCancel(void);
+    void    setDcCancel(bool enabled);
+    bool    dcCancel(void);
 
-    void setIqBalance(bool enabled);
-    bool iqBalance(void);
+    void    setIqBalance(bool enabled);
+    bool    iqBalance(void);
 
-    void setIgnoreLimits(bool reversed);
-    bool ignoreLimits(void);
+    void    setIgnoreLimits(bool reversed);
+    bool    ignoreLimits(void);
 
-    void setAntennas(std::vector<std::string> &antennas);
-    void setAntenna(const QString &antenna);
+    void    setAntennas(std::vector<std::string> &antennas);
+    void    setAntenna(const QString &antenna);
 
-    void setGainStages(gain_list_t &gain_list);
-    void restoreManualGains(QSettings *settings);
+    void    setGainStages(gain_list_t &gain_list);
+    void    restoreManualGains(void);
+
+    void    setFreqCtrlReset(bool enabled);
 
 signals:
     void gainChanged(QString name, double value);
@@ -110,6 +112,10 @@ signals:
     void iqBalanceChanged(bool enabled);
     void ignoreLimitsChanged(bool ignore);
     void antennaSelected(QString antenna);
+    void freqCtrlResetChanged(bool enabled);
+
+public slots:
+    void setLnbLo(double freq_mhz);
 
 private slots:
     void on_lnbSpinBox_valueChanged(double value);
@@ -120,14 +126,15 @@ private slots:
     void on_iqBalanceButton_toggled(bool checked);
     void on_ignoreButton_toggled(bool checked);
     void on_antSelector_currentIndexChanged(const QString &antenna);
+    void on_freqCtrlResetButton_toggled(bool checked);
 
     void sliderValueChanged(int value);
 
 private:
     void clearWidgets();
     void updateLabel(int idx, double value);
-    void getGains(QMap<QString, QVariant> *gains);
-    void setGains(QMap<QString, QVariant> *gains);
+    void getGains(QMap<QString, QVariant> * gains);
+    void setGains(QMap<QString, QVariant> * gains);
 
 private:
     QList<QSlider *>  gain_sliders; /*!< A list containing the gain sliders. */

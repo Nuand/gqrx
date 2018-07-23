@@ -3,7 +3,7 @@
  * Gqrx SDR: Software defined radio receiver powered by GNU Radio and Qt
  *           http://gqrx.dk/
  *
- * Copyright 2011-2013 Alexandru Csete OZ9AEC.
+ * Copyright 2011-2016 Alexandru Csete OZ9AEC.
  *
  * Gqrx is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,6 +24,8 @@
 #define NBRX_H
 
 #include <gnuradio/analog/simple_squelch_cc.h>
+#include <gnuradio/basic_block.h>
+#include <gnuradio/blocks/complex_to_float.h>
 #include <gnuradio/blocks/complex_to_real.h>
 #include "receivers/receiver_base.h"
 #include "dsp/rx_noise_blanker_cc.h"
@@ -61,7 +63,7 @@ public:
 
 public:
     nbrx(float quad_rate, float audio_rate);
-    ~nbrx();
+    virtual ~nbrx() { };
 
     bool start();
     bool stop();
@@ -118,11 +120,13 @@ private:
     rx_meter_c_sptr           meter;      /*!< Signal strength. */
     rx_agc_cc_sptr            agc;        /*!< Receiver AGC. */
     gr::analog::simple_squelch_cc::sptr sql;        /*!< Squelch. */
+    gr::blocks::complex_to_float::sptr  demod_raw;  /*!< Raw I/Q passthrough. */
     gr::blocks::complex_to_real::sptr   demod_ssb;  /*!< SSB demodulator. */
     rx_demod_fm_sptr          demod_fm;   /*!< FM demodulator. */
     rx_demod_am_sptr          demod_am;   /*!< AM demodulator. */
     resampler_ff_sptr         audio_rr;   /*!< Audio resampler. */
 
+    gr::basic_block_sptr      demod;    // dummy pointer used for simplifying reconf
 };
 
 #endif // NBRX_H
