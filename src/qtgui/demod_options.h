@@ -60,6 +60,12 @@ public:
     void setCwOffset(int offset);
     int  getCwOffset(void) const;
 
+    void setMaxDev(float max_dev);
+    float getMaxDev(void) const;
+
+    void setEmph(double tau);
+    double getEmph(void) const;
+
 signals:
     /*! \brief Signal emitted when new FM deviation is selected. */
     void fmMaxdevSelected(float max_dev);

@@ -88,20 +88,25 @@ public:
 
     void setFilterParam(int lo, int hi);
     void setCurrentFilter(int index);
-    int  currentFilter();
+    int  currentFilter() const;
 
     void setCurrentFilterShape(int index);
-    int  currentFilterShape();
+    int  currentFilterShape() const;
 
     void setHwFreq(qint64 freq_hz);
+    void setRxFreqRange(qint64 min_hz, qint64 max_hz);
 
-    int  currentDemod();
+    int  currentDemod() const;
     QString currentDemodAsString();
 
-    float currentMaxdev();
+    float currentMaxdev() const;
+    double currentEmph() const;
+    double currentSquelchLevel() const;
 
     void    getFilterPreset(int mode, int preset, int * lo, int * hi) const;
     int     getCwOffset() const;
+
+    double  getSqlLevel(void) const;
 
     static QStringList ModulationStrings;
     static QString GetStringForModulationIndex(int iModulationIndex);
@@ -109,6 +114,7 @@ public:
     static bool IsModulationValid(QString strModulation);
 
 public slots:
+    void setRxFreq(qint64 freq_hz);
     void setCurrentDemod(int demod);
     void setFilterOffset(qint64 freq_hz);
     void setSquelchLevel(double level);
@@ -119,6 +125,9 @@ private:
     unsigned int filterIdxFromLoHi(int lo, int hi) const;
 
 signals:
+    /** Signal emitted when receiver frequency has changed */
+    void rxFreqChanged(qint64 freq_hz);
+
     /** Signal emitted when the channel filter frequency has changed. */
     void filterOffsetChanged(qint64 freq_hz);
 
@@ -171,13 +180,16 @@ signals:
     void cwOffsetChanged(int offset);
 
 private slots:
+    void on_freqSpinBox_valueChanged(double freq);
     void on_filterFreq_newFrequency(qint64 freq);
     void on_filterCombo_activated(int index);
     void on_modeSelector_activated(int index);
     void on_modeButton_clicked();
     void on_agcButton_clicked();
     void on_autoSquelchButton_clicked();
-    void on_agcPresetCombo_activated(int index);
+    void on_resetSquelchButton_clicked();
+    //void on_agcPresetCombo_activated(int index);
+    void on_agcPresetCombo_currentIndexChanged(int index);
     void on_sqlSpinBox_valueChanged(double value);
     void on_nb1Button_toggled(bool checked);
     void on_nb2Button_toggled(bool checked);

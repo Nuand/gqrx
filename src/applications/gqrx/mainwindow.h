@@ -31,6 +31,7 @@
 #include <QTimer>
 #include <QMessageBox>
 #include <QFileDialog>
+#include <QSvgWidget>
 
 #include "qtgui/dockrxopt.h"
 #include "qtgui/dockaudio.h"
@@ -60,7 +61,7 @@ public:
     explicit MainWindow(const QString cfgfile, bool edit_conf, QWidget *parent = 0);
     ~MainWindow();
 
-    bool loadConfig(const QString cfgfile, bool check_crash);
+    bool loadConfig(const QString cfgfile, bool check_crash, bool restore_mainwindow);
     bool saveConfig(const QString cfgfile);
     void storeSession();
 
@@ -117,6 +118,7 @@ private:
     RemoteControl *remote;
 
     std::map<QString, QVariant> devList;
+    QSvgWidget      *qsvg_dummy;
 
 private:
     void updateHWFrequencyRange(bool ignore_limits);
@@ -139,6 +141,7 @@ private slots:
     void setDcCancel(bool enabled);
     void setIqBalance(bool enabled);
     void setIgnoreLimits(bool ignore_limits);
+    void setFreqCtrlReset(bool enabled);
     void selectDemod(QString demod);
     void selectDemod(int index);
     void setFmMaxdev(float max_dev);
@@ -155,6 +158,7 @@ private slots:
     void setSqlLevel(double level_db);
     double setSqlLevelAuto();
     void setAudioGain(float gain);
+    void setPassband(int bandwidth);
 
     /* audio recording and playback */
     void startAudioRec(const QString filename);
@@ -175,6 +179,7 @@ private slots:
     /* FFT settings */
     void setIqFftSize(int size);
     void setIqFftRate(int fps);
+    void setIqFftWindow(int type);
     void setIqFftSplit(int pct_wf);
     void setIqFftAvg(float avg);
     void setAudioFftRate(int fps);
@@ -191,6 +196,9 @@ private slots:
 
     /* RDS */
     void setRdsDecoder(bool checked);
+
+    /* Bookmarks */
+    void onBookmarkActivated(qint64 freq, QString demod, int bandwidth);
 
     /* menu and toolbar actions */
     void on_actionDSP_triggered(bool checked);
@@ -213,9 +221,6 @@ private slots:
 
     /* window close signals */
     void afsk1200win_closed();
-
-    void forceRxReconf();
-    
     int  firstTimeConfig();
 
     /* cyclic processing */

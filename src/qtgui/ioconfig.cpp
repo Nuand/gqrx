@@ -36,6 +36,8 @@
 
 #ifdef WITH_PULSEAUDIO
 #include "pulseaudio/pa_device_list.h"
+#elif WITH_PORTAUDIO
+#include "portaudio/device_list.h"
 #elif defined(GQRX_OS_MACX)
 #include "osxaudio/device_list.h"
 #endif
@@ -44,7 +46,9 @@
 #include "ui_ioconfig.h"
 
 
-CIoConfig::CIoConfig(QSettings *settings, std::map<QString, QVariant> &devList, QWidget *parent) :
+CIoConfig::CIoConfig(QSettings * settings,
+                     std::map<QString, QVariant> &devList,
+                     QWidget *parent) :
     QDialog(parent),
     ui(new Ui::CIoConfig),
     m_settings(settings)
@@ -112,13 +116,13 @@ CIoConfig::CIoConfig(QSettings *settings, std::map<QString, QVariant> &devList, 
     ui->bwSpinBox->setValue(1.0e-6*settings->value("input/bandwidth", 0.0).toDouble());
 
     // LNB LO
-    ui->loSpinBox->setValue(1.0e-6*settings->value("input/lnb_lo", 0.0).toDouble());
+    ui->loSpinBox->setValue(1.0e-6 * settings->value("input/lnb_lo", 0.0).toDouble());
 
     // Output device
     QString outdev = settings->value("output/device", "").toString();
 
+     // get list of audio output devices
 #ifdef WITH_PULSEAUDIO
-    // get list of output devices
     pa_device_list devices;
     outDevList = devices.get_output_devices();
 
@@ -134,9 +138,22 @@ CIoConfig::CIoConfig(QSettings *settings, std::map<QString, QVariant> &devList, 
         if (outdev == QString(outDevList[i].get_name().c_str()))
             ui->outDevCombo->setCurrentIndex(i+1);
     }
+#elif WITH_PORTAUDIO
+    portaudio_device_list   devices;
+
+    outDevList = devices.get_output_devices();
+    for (i = 0; i < outDevList.size(); i++)
+    {
+        ui->outDevCombo->addItem(QString(outDevList[i].get_description().c_str()));
+
+        // note that item #i in devlist will be item #(i+1)
+        // in combo box due to "default"
+        if (outdev == QString(outDevList[i].get_name().c_str()))
+            ui->outDevCombo->setCurrentIndex(i+1);
+    }
+    //ui->outDevCombo->setEditable(true);
 
 #elif defined(GQRX_OS_MACX)
-    // get list of output devices
     osxaudio_device_list devices;
     outDevList = devices.get_output_devices();
 
@@ -153,6 +170,8 @@ CIoConfig::CIoConfig(QSettings *settings, std::map<QString, QVariant> &devList, 
     }
 
 #else
+    ui->outDevCombo->addItem(settings->value("output/device", "Default").toString(),
+                             settings->value("output/device", "Default").toString());
     ui->outDevCombo->setEditable(true);
 #endif // WITH_PULSEAUDIO
 
@@ -244,23 +263,30 @@ void CIoConfig::getDeviceList(std::map<QString, QVariant> &devList)
     }
 }
 
-/** @brief Save configuration. */
+/** Save configuration. */
 void CIoConfig::saveConfig()
 {
     int         idx;
     int         int_val;
+    bool        conv_ok;
 
     qDebug() << __FUNCTION__;
 
     idx = ui->outDevCombo->currentIndex();
 
+#if defined(WITH_PULSEAUDIO) || defined(WITH_PORTAUDIO) || defined(GQRX_OS_MACX)
     if (idx > 0)
     {
-#if defined(WITH_PULSEAUDIO) || defined(GQRX_OS_MACX)
-        qDebug() << "Output device" << idx << ":" << QString(outDevList[idx-1].get_name().c_str());
-        m_settings->setValue("output/device", QString(outDevList[idx-1].get_name().c_str()));
-#endif
+          qDebug() << "Output device" << idx << ":" << QString(outDevList[idx-1].get_name().c_str());
+          m_settings->setValue("output/device", QString(outDevList[idx-1].get_name().c_str()));
     }
+#else
+    if (idx > 0 || ui->outDevCombo->currentText() != "Default")
+    {
+        qDebug() << "Output device:" << ui->outDevCombo->currentText();
+        m_settings->setValue("output/device", ui->outDevCombo->currentText());
+    }
+#endif
     else
     {
         m_settings->remove("output/device");
@@ -278,10 +304,11 @@ void CIoConfig::saveConfig()
     value = (qint64)(ui->loSpinBox->value()*1.e6);
     if (value)
         m_settings->setValue("input/lnb_lo", value);
+    else
+        m_settings->remove("input/lnb_lo");
 
-    bool ok=false;
-    int_val = ui->inSrCombo->currentText().toInt(&ok);
-    if (ok)
+    int_val = ui->inSrCombo->currentText().toInt(&conv_ok);
+    if (conv_ok)
         m_settings->setValue("input/sample_rate", int_val);
     else
         m_settings->remove("input/sample_rate");
@@ -304,18 +331,7 @@ void CIoConfig::updateInputSampleRates(int rate)
     ui->inSrCombo->clear();
 
     if (ui->inDevEdit->text().isEmpty())
-    {
         return;
-    }
-
-    /** FIXME: this code crashes on RTL device so we use fixed rates **/
-    //osmosdr_source_c_sptr src = osmosdr_make_source_c(ui->inDevEdit->text().toStdString());
-    //osmosdr::meta_range_t rates = src->get_sample_rates();
-    //BOOST_FOREACH(osmosdr::range_t &rate, rates)
-    //{
-    //    ui->inSrCombo->addItem(QString("%1 kHz").arg(rate.start()/1000, 0, 'f', 0));
-    //}
-    //src.reset();
 
     if (ui->inDevEdit->text().contains("fcd"))
     {
@@ -396,9 +412,6 @@ void CIoConfig::updateInputSampleRates(int rate)
     }
     else if (ui->inDevEdit->text().contains("sdr-iq"))
     {
-        if (rate > 0)
-            ui->inSrCombo->addItem(QString("%1").arg(rate));
-
         ui->inSrCombo->addItem("8138");
         ui->inSrCombo->addItem("16276");
         ui->inSrCombo->addItem("37793");
@@ -406,12 +419,16 @@ void CIoConfig::updateInputSampleRates(int rate)
         ui->inSrCombo->addItem("111111");
         ui->inSrCombo->addItem("158730");
         ui->inSrCombo->addItem("196078");
+        if (rate > 0)
+        {
+            ui->inSrCombo->insertItem(0, QString("%1").arg(rate));
+            ui->inSrCombo->setCurrentIndex(0);
+        }
+        else
+            ui->inSrCombo->setCurrentIndex(4); // select 111.111 kHz
     }
     else if (ui->inDevEdit->text().contains("sdr-ip"))
     {
-        if (rate > 0)
-            ui->inSrCombo->addItem(QString("%1").arg(rate));
-
         ui->inSrCombo->addItem("31250");
         ui->inSrCombo->addItem("32000");
         ui->inSrCombo->addItem("40000");
@@ -431,12 +448,16 @@ void CIoConfig::updateInputSampleRates(int rate)
         ui->inSrCombo->addItem("1000000");
         ui->inSrCombo->addItem("1600000");
         ui->inSrCombo->addItem("2000000");
+        if (rate > 0)
+        {
+            ui->inSrCombo->insertItem(0, QString("%1").arg(rate));
+            ui->inSrCombo->setCurrentIndex(0);
+        }
+        else
+            ui->inSrCombo->setCurrentIndex(11); // select 250 kHz
     }
     else if (ui->inDevEdit->text().contains("netsdr"))
     {
-        if (rate > 0)
-            ui->inSrCombo->addItem(QString("%1").arg(rate));
-
         ui->inSrCombo->addItem("32000");
         ui->inSrCombo->addItem("40000");
         ui->inSrCombo->addItem("50000");
@@ -457,6 +478,13 @@ void CIoConfig::updateInputSampleRates(int rate)
         ui->inSrCombo->addItem("1000000");
         ui->inSrCombo->addItem("1250000");
         ui->inSrCombo->addItem("2000000");
+        if (rate > 0)
+        {
+            ui->inSrCombo->insertItem(0, QString("%1").arg(rate));
+            ui->inSrCombo->setCurrentIndex(0);
+        }
+        else
+            ui->inSrCombo->setCurrentIndex(11); // select 250 kHz
     }
     else if (ui->inDevEdit->text().contains("cloudiq"))
     {
@@ -474,16 +502,26 @@ void CIoConfig::updateInputSampleRates(int rate)
         ui->inSrCombo->addItem("1228800");
         ui->inSrCombo->addItem("1807058");
         if (rate > 0)
+        {
             ui->inSrCombo->insertItem(0, QString("%1").arg(rate));
+            ui->inSrCombo->setCurrentIndex(0);
+        }
         else
-            ui->inSrCombo->setCurrentIndex(4); // select 370 kHz
+            ui->inSrCombo->setCurrentIndex(4); // select 240 kHz
     }
+    else if (ui->inDevEdit->text().contains("airspyhf"))
+    {
+        ui->inSrCombo->addItem("768000");
+    }
+    // NB: must list airspyhf first
     else if (ui->inDevEdit->text().contains("airspy"))
     {
         if (rate > 0)
             ui->inSrCombo->addItem(QString("%1").arg(rate));
 
         ui->inSrCombo->addItem("2500000");
+        ui->inSrCombo->addItem("3000000");
+        ui->inSrCombo->addItem("6000000");
         ui->inSrCombo->addItem("10000000");
     }
     else if (ui->inDevEdit->text().contains("redpitaya"))
@@ -495,7 +533,10 @@ void CIoConfig::updateInputSampleRates(int rate)
         ui->inSrCombo->addItem("500000");
         ui->inSrCombo->addItem("1250000");
         if (rate > 0)
-            ui->inSrCombo->addItem(QString("%1").arg(rate));
+        {
+            ui->inSrCombo->insertItem(0, QString("%1").arg(rate));
+            ui->inSrCombo->setCurrentIndex(0);
+        }
         else
             ui->inSrCombo->setCurrentIndex(3); // select 250 kHz
     }
@@ -519,10 +560,76 @@ void CIoConfig::updateInputSampleRates(int rate)
         ui->inSrCombo->addItem("8000000");
         ui->inSrCombo->addItem("9000000");
         ui->inSrCombo->addItem("10000000");
-        ui->inSrCombo->addItem("11000000");
-        ui->inSrCombo->addItem("12000000");
-        if (rate == 0)
-            ui->inSrCombo->setCurrentIndex(9); // select 2048 kHz
+        if (rate > 0)
+        {
+            if (rate < 62500)
+                rate = 62500;
+            if (rate > 10000000)
+                rate = 10000000;
+            ui->inSrCombo->insertItem(0, QString("%1").arg(rate));
+            ui->inSrCombo->setCurrentIndex(0);
+        }
+        else
+            ui->inSrCombo->setCurrentIndex(5); // select 2 MHz
+    }
+    else if (ui->inDevEdit->text().contains("lime"))
+    {
+        ui->inSrCombo->addItem("100000");
+        ui->inSrCombo->addItem("500000");
+        ui->inSrCombo->addItem("1000000");
+        ui->inSrCombo->addItem("2500000");
+        ui->inSrCombo->addItem("5000000");
+        ui->inSrCombo->addItem("10000000");
+        ui->inSrCombo->addItem("20000000");
+        ui->inSrCombo->addItem("50000000");
+        if (rate > 0)
+        {
+            ui->inSrCombo->insertItem(0, QString("%1").arg(rate));
+            ui->inSrCombo->setCurrentIndex(0);
+        }
+        else
+            ui->inSrCombo->setCurrentIndex(4); // select 5 MHz
+    }
+    else if (ui->inDevEdit->text().contains("plutosdr"))
+    {
+        ui->inSrCombo->addItem("600000");
+        ui->inSrCombo->addItem("1000000");
+        ui->inSrCombo->addItem("1500000");
+        ui->inSrCombo->addItem("2000000");
+        ui->inSrCombo->addItem("3000000");
+        ui->inSrCombo->addItem("6000000");
+        ui->inSrCombo->addItem("16000000");
+        ui->inSrCombo->addItem("20000000");
+        ui->inSrCombo->addItem("56000000");
+        if (rate > 0)
+        {
+            ui->inSrCombo->insertItem(0, QString("%1").arg(rate));
+            ui->inSrCombo->setCurrentIndex(0);
+        }
+        else
+            ui->inSrCombo->setCurrentIndex(2); // select 2 MHz
+    }
+    else if (ui->inDevEdit->text().contains("perseus"))
+    {
+        ui->inSrCombo->addItem("48000");
+        ui->inSrCombo->addItem("95000");
+        ui->inSrCombo->addItem("96000");
+        ui->inSrCombo->addItem("125000");
+        ui->inSrCombo->addItem("192000");
+        ui->inSrCombo->addItem("250000");
+        ui->inSrCombo->addItem("500000");
+        ui->inSrCombo->addItem("1000000");
+        ui->inSrCombo->addItem("1600000");
+        ui->inSrCombo->addItem("2000000");
+        if (rate > 0)
+        {
+            ui->inSrCombo->insertItem(0, QString("%1").arg(rate));
+            ui->inSrCombo->setCurrentIndex(0);
+        }
+        else {
+            ui->inSrCombo->setCurrentIndex(4); // select 192 kHz
+        }
+
     }
     else
     {
@@ -566,10 +673,10 @@ void CIoConfig::updateDecimations(void)
         ui->decimCombo->addItem("64", 0);
     if (rate >= 6144000)
         ui->decimCombo->addItem("128", 0);
-    if (rate >= 12288000)
-        ui->decimCombo->addItem("256", 0);
-    if (rate >= 24576000)
-        ui->decimCombo->addItem("512", 0);
+//    if (rate >= 12288000)
+//        ui->decimCombo->addItem("256", 0);
+//    if (rate >= 24576000)
+//        ui->decimCombo->addItem("512", 0);
 
     decimationChanged(0);
 }
@@ -643,9 +750,7 @@ void CIoConfig::decimationChanged(int index)
                                    arg(quad_rate * 1.e-3, 0, 'f', 3));
 }
 
-/**
- * @brief Convert a combo box index to decimation.
- */
+/** Convert a combo box index to decimation. */
 int CIoConfig::idx2decim(int idx) const
 {
     if (idx < 1)
@@ -654,9 +759,7 @@ int CIoConfig::idx2decim(int idx) const
     return (1 << idx);
 }
 
-/**
- * @brief Convert a decimation to a combobox index
- */
+/** Convert a decimation to a combobox index */
 int CIoConfig::decim2idx(int decim) const
 {
     int         idx;

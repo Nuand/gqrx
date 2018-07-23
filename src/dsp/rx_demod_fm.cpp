@@ -20,17 +20,18 @@
  * the Free Software Foundation, Inc., 51 Franklin Street,
  * Boston, MA 02110-1301, USA.
  */
-#include <gnuradio/io_signature.h>
 #include <gnuradio/filter/firdes.h>
-#include <dsp/rx_demod_fm.h>
-#include <math.h>
+#include <gnuradio/io_signature.h>
 #include <iostream>
+#include <math.h>
+
+#include "dsp/rx_demod_fm.h"
 
 
 /* Create a new instance of rx_demod_fm and return a boost shared_ptr. */
-rx_demod_fm_sptr make_rx_demod_fm(float quad_rate, float audio_rate, float max_dev, double tau)
+rx_demod_fm_sptr make_rx_demod_fm(float quad_rate, float max_dev, double tau)
 {
-    return gnuradio::get_initial_sptr(new rx_demod_fm(quad_rate, audio_rate, max_dev, tau));
+    return gnuradio::get_initial_sptr(new rx_demod_fm(quad_rate, max_dev, tau));
 }
 
 static const int MIN_IN = 1;  /* Mininum number of input streams. */
@@ -38,12 +39,11 @@ static const int MAX_IN = 1;  /* Maximum number of input streams. */
 static const int MIN_OUT = 1; /* Minimum number of output streams. */
 static const int MAX_OUT = 1; /* Maximum number of output streams. */
 
-rx_demod_fm::rx_demod_fm(float quad_rate, float audio_rate, float max_dev, double tau)
+rx_demod_fm::rx_demod_fm(float quad_rate, float max_dev, double tau)
     : gr::hier_block2 ("rx_demod_fm",
                       gr::io_signature::make (MIN_IN, MAX_IN, sizeof (gr_complex)),
                       gr::io_signature::make (MIN_OUT, MAX_OUT, sizeof (float))),
     d_quad_rate(quad_rate),
-    d_audio_rate(audio_rate),
     d_max_dev(max_dev),
     d_tau(tau)
 {
@@ -67,11 +67,13 @@ rx_demod_fm::rx_demod_fm(float quad_rate, float audio_rate, float max_dev, doubl
 
     /* connect block */
     connect(self(), 0, d_quad, 0);
-    if (d_tau > 1.0e-9) {
+    if (d_tau > 1.0e-9)
+    {
         connect(d_quad, 0, d_deemph, 0);
         connect(d_deemph, 0, self(), 0);
     }
-    else {
+    else
+    {
         connect(d_quad, 0, self(), 0);
     }
 
@@ -93,7 +95,8 @@ void rx_demod_fm::set_max_dev(float max_dev)
 {
     float gain;
 
-    if ((max_dev < 500.0) || (max_dev > d_quad_rate/2.0)) {
+    if ((max_dev < 500.0) || (max_dev > d_quad_rate/2.0))
+    {
         return;
     }
 
@@ -111,17 +114,20 @@ void rx_demod_fm::set_max_dev(float max_dev)
  */
 void rx_demod_fm::set_tau(double tau)
 {
-    if (fabs(tau - d_tau) < 1.0e-9) {
+    if (fabs(tau - d_tau) < 1.0e-9)
+    {
         /* no change */
         return;
     }
 
-    if (tau > 1.0e-9) {
+    if (tau > 1.0e-9)
+    {
         calculate_iir_taps(tau);
         d_deemph->set_taps(d_fftaps, d_fbtaps);
 
         /* check to see if we need to rewire flow graph */
-        if (d_tau <= 1.0e-9) {
+        if (d_tau <= 1.0e-9)
+        {
             /* need to put deemph into the flowgraph */
             lock();
             disconnect(d_quad, 0, self(), 0);
@@ -132,12 +138,14 @@ void rx_demod_fm::set_tau(double tau)
 
         d_tau = tau;
     }
-    else {
+    else
+    {
 #ifndef QT_NO_DEBUG_OUTPUT
         std::cerr << "FM de-emphasis tau is 0: " << tau << std::endl;
 #endif
         /* diable de-emph if conencted */
-        if (d_tau > 1.0e-9) {
+        if (d_tau > 1.0e-9)
+        {
 #ifndef QT_NO_DEBUG_OUTPUT
             std::cout << "  Disable de-emphasis" << std::endl;
 #endif
@@ -150,22 +158,30 @@ void rx_demod_fm::set_tau(double tau)
 
         d_tau = 0.0;
     }
-
 }
-
 
 /*! \brief Calculate taps for FM de-emph IIR filter. */
 void rx_demod_fm::calculate_iir_taps(double tau)
 {
-    /* copied from fm_emph.py in gnuradio-core */
-    double w_p, w_pp;
+    // copied from fm_emph.py in gr-analog
+    double  w_c;    // Digital corner frequency
+    double  w_ca;   // Prewarped analog corner frequency
+    double  k, z1, p1, b0;
+    double  fs = d_quad_rate;
 
-    w_p = 1.0/tau;
-    w_pp = tan(w_p / (d_quad_rate * 2.0)); /* prewarped analog freq */
+    w_c = 1.0 / tau;
+    w_ca = 2.0 * fs * tan(w_c / (2.0 * fs));
 
-    d_fftaps[0] = w_pp/(1 + w_pp);
-    d_fftaps[1] = d_fftaps[0];
+    // Resulting digital pole, zero, and gain term from the bilinear
+    // transformation of H(s) = w_ca / (s + w_ca) to
+    // H(z) = b0 (1 - z1 z^-1)/(1 - p1 z^-1)
+    k = -w_ca / (2.0 * fs);
+    z1 = -1.0;
+    p1 = (1.0 + k) / (1.0 - k);
+    b0 = -k / (1.0 - k);
 
+    d_fftaps[0] = b0;
+    d_fftaps[1] = -z1 * b0;
     d_fbtaps[0] = 1.0;
-    d_fbtaps[1] = (w_pp - 1)/(w_pp + 1);
+    d_fbtaps[1] = -p1;
 }

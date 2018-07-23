@@ -36,13 +36,16 @@
 
 #include "applications/gqrx/receiver.h"
 #include "dsp/correct_iq_cc.h"
-#include "dsp/hbf_decim.h"
+//#include "dsp/hbf_decim.h"
+#include "dsp/filter/fir_decim.h"
 #include "dsp/rx_fft.h"
 #include "receivers/nbrx.h"
 #include "receivers/wfmrx.h"
 
 #ifdef WITH_PULSEAUDIO
 #include "pulseaudio/pa_sink.h"
+#elif WITH_PORTAUDIO
+#include "portaudio/portaudio_sink.h"
 #else
 #include <gnuradio/audio/sink.h>
 #endif
@@ -90,7 +93,7 @@ receiver::receiver(const std::string input_device,
     {
         try
         {
-            input_decim = make_hbf_decim(d_decim);
+            input_decim = make_fir_decim_cc(d_decim);
         }
         catch (std::range_error &e)
         {
@@ -120,9 +123,9 @@ receiver::receiver(const std::string input_device,
 
     iq_swap = make_iq_swap_cc(false);
     dc_corr = make_dc_corr_cc(d_quad_rate, 1.0);
-    iq_fft = make_rx_fft_c(8192u, 0);
+    iq_fft = make_rx_fft_c(8192u, gr::filter::firdes::WIN_HANN);
 
-    audio_fft = make_rx_fft_f(8192u);
+    audio_fft = make_rx_fft_f(8192u, gr::filter::firdes::WIN_HANN);
     audio_gain0 = gr::blocks::multiply_const_ff::make(0.1);
     audio_gain1 = gr::blocks::multiply_const_ff::make(0.1);
 
@@ -134,6 +137,8 @@ receiver::receiver(const std::string input_device,
 
 #ifdef WITH_PULSEAUDIO
     audio_snk = make_pa_sink(audio_device, d_audio_rate, "GQRX", "Audio output");
+#elif WITH_PORTAUDIO
+    audio_snk = make_portaudio_sink(audio_device, d_audio_rate, "GQRX", "Audio output");
 #else
     audio_snk = gr::audio::sink::make(d_audio_rate, audio_device, true);
 #endif
@@ -226,6 +231,8 @@ void receiver::set_input_device(const std::string device)
 
     src.reset();
     src = osmosdr::source::make(device);
+    if(src->get_sample_rate() != 0)
+        set_input_rate(src->get_sample_rate());
 
     if (d_decim >= 2)
     {
@@ -265,18 +272,26 @@ void receiver::set_output_device(const std::string device)
 
     tb->lock();
 
-    tb->disconnect(audio_gain0, 0, audio_snk, 0);
-    tb->disconnect(audio_gain1, 0, audio_snk, 1);
+    if (d_demod != RX_DEMOD_OFF)
+    {
+        tb->disconnect(audio_gain0, 0, audio_snk, 0);
+        tb->disconnect(audio_gain1, 0, audio_snk, 1);
+    }
     audio_snk.reset();
 
 #ifdef WITH_PULSEAUDIO
     audio_snk = make_pa_sink(device, d_audio_rate, "GQRX", "Audio output");
+#elif WITH_PORTAUDIO
+    audio_snk = make_portaudio_sink(device, d_audio_rate, "GQRX", "Audio output");
 #else
     audio_snk = gr::audio::sink::make(d_audio_rate, device, true);
 #endif
 
-    tb->connect(audio_gain0, 0, audio_snk, 0);
-    tb->connect(audio_gain1, 0, audio_snk, 1);
+    if (d_demod != RX_DEMOD_OFF)
+    {
+        tb->connect(audio_gain0, 0, audio_snk, 0);
+        tb->connect(audio_gain1, 0, audio_snk, 1);
+    }
 
     tb->unlock();
 }
@@ -364,13 +379,6 @@ double receiver::set_input_rate(double rate)
     return d_input_rate;
 }
 
-
-/** Get current input sample rate. */
-double receiver::get_input_rate(void) const
-{
-    return d_input_rate;
-}
-
 /** Set input decimation */
 unsigned int receiver::set_input_decim(unsigned int decim)
 {
@@ -399,7 +407,7 @@ unsigned int receiver::set_input_decim(unsigned int decim)
     {
         try
         {
-            input_decim = make_hbf_decim(d_decim);
+            input_decim = make_fir_decim_cc(d_decim);
         }
         catch (std::range_error &e)
         {
@@ -430,6 +438,11 @@ unsigned int receiver::set_input_decim(unsigned int decim)
     {
         tb->connect(src, 0, iq_swap, 0);
     }
+
+#ifdef CUSTOM_AIRSPY_KERNELS
+    if (input_devstr.find("airspy") != std::string::npos)
+        src->set_bandwidth(d_quad_rate);
+#endif
 
     if (d_running)
         tb->start();
@@ -735,6 +748,11 @@ float receiver::get_signal_pwr(bool dbfs) const
 void receiver::set_iq_fft_size(int newsize)
 {
     iq_fft->set_fft_size(newsize);
+}
+
+void receiver::set_iq_fft_window(int window_type)
+{
+    iq_fft->set_window_type(window_type);
 }
 
 /** Get latest baseband FFT data. */

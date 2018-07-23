@@ -25,9 +25,19 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QFile>
+#include <QMessageBox>
 #include <QString>
 #include <QStringList>
+#include <QStyleFactory>
 #include <QtGlobal>
+
+#ifdef WITH_PORTAUDIO
+#include <portaudio.h>
+#endif
+#ifdef WITH_PULSEAUDIO
+#include <pulse/error.h>
+#include <pulse/simple.h>
+#endif
 
 #include "mainwindow.h"
 #include "gqrx.h"
@@ -41,12 +51,14 @@ static void list_conf(void);
 
 int main(int argc, char *argv[])
 {
-    QString cfg_file;
-    std::string conf;
-    bool clierr=false;
-    bool edit_conf = false;
+    QString         cfg_file;
+    std::string     conf;
+    std::string     style;
+    bool            clierr = false;
+    bool            edit_conf = false;
+    int             return_code;
 
-    QApplication a(argc, argv);
+    QApplication app(argc, argv);
     QCoreApplication::setOrganizationName(GQRX_ORG_NAME);
     QCoreApplication::setOrganizationDomain(GQRX_ORG_DOMAIN);
     QCoreApplication::setApplicationName(GQRX_APP_NAME);
@@ -60,25 +72,15 @@ int main(int argc, char *argv[])
     else
         qDebug() << "Failed to disable controlport";
 
-#if 0
-//#ifdef WITH_PORTAUDIO
-    // FIXME: This should be user configurable although for now
-    // the audio-osx-source is useless and the only way to use the
-    // Funcube Dongle Pro and Pro+ is via portaudio.
-    if (qputenv("GR_CONF_AUDIO_AUDIO_MODULE", "portaudio"))
-        qDebug() << "GR_CONF_AUDIO_AUDIO_MODULE set to portaudio";
-    else
-        qDebug() << "Failed to set GR_CONF_AUDIO_AUDIO_MODULE=portaudio";
-#endif
-
     // setup the program options
     po::options_description desc("Command line options");
     desc.add_options()
-        ("help,h", "This help message")
-        ("list,l", "List existing configurations")
-        ("conf,c", po::value<std::string>(&conf), "Start with this config file")
-        ("edit,e", "Edit the config file before using it")
-        ("reset,r", "Reset configuration file")
+            ("help,h", "This help message")
+            ("style,s", po::value<std::string>(&style), "Use the give style (fusion, windows)")
+            ("list,l", "List existing configurations")
+            ("conf,c", po::value<std::string>(&conf), "Start with this config file")
+            ("edit,e", "Edit the config file before using it")
+            ("reset,r", "Reset configuration file")
     ;
 
     po::variables_map vm;
@@ -107,11 +109,49 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    if (vm.count("style"))
+        QApplication::setStyle(QString::fromStdString(style));
+
     if (vm.count("list"))
     {
         list_conf();
         return 0;
     }
+
+    // check whether audio backend is functional
+#ifdef WITH_PORTAUDIO
+    PaError     err = Pa_Initialize();
+    if (err != paNoError)
+    {
+        QString message = QString("Portaudio error: %1").arg(Pa_GetErrorText(err));
+        qCritical() << message;
+        QMessageBox::critical(0, "Audio Error", message,
+                              QMessageBox::Abort, QMessageBox::NoButton);
+        return 1;
+    }
+#endif
+
+#ifdef WITH_PULSEAUDIO
+    int         error = 0;
+    pa_simple  *test_sink;
+    pa_sample_spec ss;
+
+    ss.format = PA_SAMPLE_FLOAT32LE;
+    ss.rate = 48000;
+    ss.channels = 2;
+    test_sink =  pa_simple_new(NULL, "Gqrx Test", PA_STREAM_PLAYBACK, NULL,
+                               "Test stream", &ss, NULL, NULL, &error);
+    if (!test_sink)
+    {
+        QString message = QString("Pulseaudio error: %1").arg(pa_strerror(error));
+        qCritical() << message;
+        QMessageBox::critical(0, "Audio Error", message,
+                              QMessageBox::Abort, QMessageBox::NoButton);
+        return 1;
+    }
+    pa_simple_free(test_sink);
+#endif
+
 
     if (!conf.empty())
     {
@@ -137,19 +177,25 @@ int main(int argc, char *argv[])
     if (w.configOk)
     {
         w.show();
-        return a.exec();
+        return_code = app.exec();
     }
     else
     {
-        return 1;
+        return_code = 1;
     }
+
+#ifdef WITH_PORTAUDIO
+    Pa_Terminate();
+#endif
+
+    return  return_code;
 }
 
-/*! \brief Reset configuration file specified by file_name. */
+/** Reset configuration file specified by file_name. */
 static void reset_conf(const QString &file_name)
 {
-    QString cfg_file;
-    QByteArray xdg_dir = qgetenv("XDG_CONFIG_HOME");
+    QString     cfg_file;
+    QByteArray  xdg_dir = qgetenv("XDG_CONFIG_HOME");
 
     if (xdg_dir.isEmpty())
         cfg_file = QString("%1/.config/gqrx/%2").arg(QDir::homePath()).arg(file_name);
@@ -169,11 +215,11 @@ static void reset_conf(const QString &file_name)
     }
 }
 
-/*! \brief List avaialble configurations. */
+/** List available configurations. */
 static void list_conf(void)
 {
-    QString conf_path;
-    QByteArray xdg_dir = qgetenv("XDG_CONFIG_HOME");
+    QString     conf_path;
+    QByteArray  xdg_dir = qgetenv("XDG_CONFIG_HOME");
 
     if (xdg_dir.isEmpty())
         conf_path = QString("%1/.config/gqrx/").arg(QDir::homePath());
@@ -183,7 +229,10 @@ static void list_conf(void)
     QDir conf_dir = QDir(conf_path, "*.conf", QDir::Name, QDir::Files);
     QStringList conf_files = conf_dir.entryList(QStringList("*.conf"));
 
-    std::cout << " Existing configuration files:" << std::endl;
+    std::cout << std::endl
+              << " Existing configuration files in "
+              << conf_path.toStdString()
+              << std::endl;
 
     if (conf_files.isEmpty())
     {

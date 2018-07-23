@@ -3,7 +3,7 @@
  * Gqrx SDR: Software defined radio receiver powered by GNU Radio and Qt
  *           http://gqrx.dk/
  *
- * Copyright 2011-2013 Alexandru Csete OZ9AEC.
+ * Copyright 2011-2016 Alexandru Csete OZ9AEC.
  *
  * Gqrx is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,8 +24,8 @@
 #include <iostream>
 #include "receivers/nbrx.h"
 
-#define PREF_QUAD_RATE  48000.0
-#define PREF_AUDIO_RATE 48000.0
+// NB: Remeber to adjust filter ranges in MainWindow
+#define PREF_QUAD_RATE  96000.f
 
 nbrx_sptr make_nbrx(float quad_rate, float audio_rate)
 {
@@ -43,30 +43,42 @@ nbrx::nbrx(float quad_rate, float audio_rate)
 
     nb = make_rx_nb_cc(PREF_QUAD_RATE, 3.3, 2.5);
     filter = make_rx_filter(PREF_QUAD_RATE, -5000.0, 5000.0, 1000.0);
-    agc = make_rx_agc_cc(PREF_QUAD_RATE, true, -120, 50, 2, 100, false);
+    agc = make_rx_agc_cc(PREF_QUAD_RATE, true, -100, 0, 0, 500, false);
     sql = gr::analog::simple_squelch_cc::make(-150.0, 0.001);
     meter = make_rx_meter_c(DETECTOR_TYPE_RMS);
+    demod_raw = gr::blocks::complex_to_float::make(1);
     demod_ssb = gr::blocks::complex_to_real::make(1);
-    demod_fm = make_rx_demod_fm(PREF_QUAD_RATE, PREF_AUDIO_RATE, 5000.0, 75.0e-6);
-    demod_am = make_rx_demod_am(PREF_QUAD_RATE, PREF_AUDIO_RATE, true);
-    audio_rr = make_resampler_ff(d_audio_rate/PREF_AUDIO_RATE);
+    demod_fm = make_rx_demod_fm(PREF_QUAD_RATE, 5000.0, 75.0e-6);
+    demod_am = make_rx_demod_am(PREF_QUAD_RATE, true);
 
+    audio_rr.reset();
+    if (d_audio_rate != PREF_QUAD_RATE)
+    {
+        std::cout << "Resampling audio " << PREF_QUAD_RATE << " -> "
+                  << d_audio_rate << std::endl;
+        audio_rr = make_resampler_ff(d_audio_rate/PREF_QUAD_RATE);
+    }
+
+    demod = demod_fm;
     connect(self(), 0, iq_resamp, 0);
     connect(iq_resamp, 0, nb, 0);
     connect(nb, 0, filter, 0);
     connect(filter, 0, meter, 0);
     connect(filter, 0, sql, 0);
     connect(sql, 0, agc, 0);
-    connect(agc, 0, demod_fm, 0);
-    connect(demod_fm, 0, audio_rr, 0);
-    connect(audio_rr, 0, self(), 0); // left  channel
-    connect(audio_rr, 0, self(), 1); // right channel
-    // FIXME: we only need audio_rr when audio_rate != PREF_AUDIO_RATE
+    connect(agc, 0, demod, 0);
 
-}
-
-nbrx::~nbrx()
-{
+    if (audio_rr)
+    {
+        connect(demod, 0, audio_rr, 0);
+        connect(audio_rr, 0, self(), 0); // left  channel
+        connect(audio_rr, 0, self(), 1); // right channel
+    }
+    else
+    {
+        connect(demod, 0, self(), 0);
+        connect(demod, 0, self(), 1);
+    }
 
 }
 
@@ -101,6 +113,7 @@ void nbrx::set_quad_rate(float quad_rate)
 void nbrx::set_audio_rate(float audio_rate)
 {
     (void) audio_rate;
+    std::cout << "**** FIXME: nbrx::set_audio_rate() not implemented" << std::endl;
 }
 
 void nbrx::set_filter(double low, double high, double tw)
@@ -191,62 +204,56 @@ void nbrx::set_demod(int rx_demod)
         return;
     }
 
-    // for now we must depend on top level stop/lock
-    // because of https://github.com/csete/gqrx/issues/120
-    //lock();
-
-    /* disconnect current demodulator */
-    switch (current_demod) {
-
-    default:
-    case NBRX_DEMOD_NONE: /** FIXME! **/
-    case NBRX_DEMOD_SSB:
-        disconnect(agc, 0, demod_ssb, 0);
-        disconnect(demod_ssb, 0, audio_rr, 0);
-        break;
-
-    case NBRX_DEMOD_AM:
-        disconnect(agc, 0, demod_am, 0);
-        disconnect(demod_am, 0, audio_rr, 0);
-        break;
-
-    case NBRX_DEMOD_FM:
-        disconnect(agc, 0, demod_fm, 0);
-        disconnect(demod_fm, 0, audio_rr, 0);
-        break;
+    disconnect(agc, 0, demod, 0);
+    if (audio_rr)
+        disconnect(demod, 0, audio_rr, 0);
+    else
+    {
+        disconnect(demod, 0, self(), 0);
+        disconnect(demod, 0, self(), 1);
     }
 
     switch (rx_demod) {
 
-    case NBRX_DEMOD_NONE: /** FIXME! **/
+    case NBRX_DEMOD_NONE:
+        d_demod = NBRX_DEMOD_NONE;
+        demod = demod_raw;
+        break;
+
     case NBRX_DEMOD_SSB:
         d_demod = NBRX_DEMOD_SSB;
-        connect(agc, 0, demod_ssb, 0);
-        connect(demod_ssb, 0, audio_rr, 0);
+        demod = demod_ssb;
         break;
 
     case NBRX_DEMOD_AM:
         d_demod = NBRX_DEMOD_AM;
-        connect(agc, 0, demod_am, 0);
-        connect(demod_am, 0, audio_rr, 0);
+        demod = demod_am;
         break;
 
     case NBRX_DEMOD_FM:
-        d_demod = NBRX_DEMOD_FM;
-        connect(agc, 0, demod_fm, 0);
-        connect(demod_fm, 0, audio_rr, 0);
-        break;
-
     default:
-        /* use FMN */
         d_demod = NBRX_DEMOD_FM;
-        connect(agc, 0, demod_fm, 0);
-        connect(demod_fm, 0, audio_rr, 0);
+        demod = demod_fm;
         break;
     }
 
-    /* continue processing */
-    //unlock();
+    connect(agc, 0, demod, 0);
+    if (audio_rr)
+    {
+        // FIXME: DEMOD_NONE has two outputs.
+        connect(demod, 0, audio_rr, 0);
+    }
+    else if (d_demod == NBRX_DEMOD_NONE)
+    {
+        connect(demod, 0, self(), 0);
+        connect(demod, 1, self(), 1);
+    }
+    else
+    {
+        connect(demod, 0, self(), 0);
+        connect(demod, 0, self(), 1);
+    }
+
 }
 
 void nbrx::set_fm_maxdev(float maxdev_hz)

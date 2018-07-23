@@ -3,7 +3,7 @@
  * Gqrx SDR: Software defined radio receiver powered by GNU Radio and Qt
  *           http://gqrx.dk/
  *
- * Copyright 2013 Alexandru Csete OZ9AEC.
+ * Copyright 2013-2016 Alexandru Csete OZ9AEC.
  *
  * Gqrx is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -89,6 +89,57 @@ void CAudioOptions::setUdpPort(int port)
 {
     ui->udpPort->setValue(port);
 }
+
+
+void CAudioOptions::setFftSplit(int pct_2d)
+{
+    ui->fftSplitSlider->setValue(100 - pct_2d);
+}
+
+int  CAudioOptions::getFftSplit(void) const
+{
+    return 100 - ui->fftSplitSlider->value();
+}
+
+void CAudioOptions::on_fftSplitSlider_valueChanged(int value)
+{
+    emit newFftSplit(100 - value);
+}
+
+void CAudioOptions::setPandapterRange(int min, int max)
+{
+    if (min < max && max <= 0)
+        ui->pandRangeSlider->setValues(min, max);
+}
+
+void CAudioOptions::getPandapterRange(int * min, int * max) const
+{
+    *min = ui->pandRangeSlider->minimumValue();
+    *max = ui->pandRangeSlider->maximumValue();
+}
+
+void CAudioOptions::on_pandRangeSlider_valuesChanged(int min, int max)
+{
+    emit newPandapterRange(min, max);
+}
+
+void CAudioOptions::setWaterfallRange(int min, int max)
+{
+    if (min < max && max <= 0)
+        ui->wfRangeSlider->setValues(min, max);
+}
+
+void CAudioOptions::getWaterfallRange(int * min, int * max) const
+{
+    *min = ui->wfRangeSlider->minimumValue();
+    *max = ui->wfRangeSlider->maximumValue();
+}
+
+void CAudioOptions::on_wfRangeSlider_valuesChanged(int min, int max)
+{
+    emit newWaterfallRange(min, max);
+}
+
 
 /**
  * Slot called when the recordings directory has changed either

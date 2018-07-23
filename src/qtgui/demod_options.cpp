@@ -24,6 +24,72 @@
 #include "demod_options.h"
 #include "ui_demod_options.h"
 
+
+/* convert between deemphasis time constant and combo-index */
+const double tau_tbl[] = {
+    0.0, 25.0e-6, 50.0e-6, 75.0e-6, 100.0e-6, 250.0e-6, 530.0e-6, 1.0e-3
+};
+const int tau_tbl_maxidx = 7;
+
+double tau_from_index(int index)
+{
+    if (index < 0 || index > tau_tbl_maxidx)
+        return 0.0;
+
+    return tau_tbl[index];
+}
+
+int tau_to_index(double tau)
+{
+    int i;
+    for (i = 0; i < tau_tbl_maxidx; i++)
+    {
+        if (tau < (tau_tbl[i] + 0.5 * (tau_tbl[i+1] - tau_tbl[i])))
+            return i;
+    }
+    return 0;
+}
+
+/* convert betweenFM max dev and combo index */
+float maxdev_from_index(int index)
+{
+    switch(index)
+    {
+    case 0:
+        /* Voice 2.5k */
+        return 2500.0;
+    case 1:
+        /* Voice 5k */
+        return 5000.0;
+    case 2:
+        /* APT 17k */
+        return 17000.0;
+    case 3:
+        /* APT 25k (17k but need some margin for Doppler and freq error) */
+        return 25000.0;
+    default:
+        /* Voice 5k */
+        qDebug() << "Invalid max_dev index: " << index;
+        return 5000.0;
+    }
+}
+
+int maxdev_to_index(float max_dev)
+{
+    if (max_dev < 3000.0)
+        /* Voice 2.5k */
+        return 0;
+    else if (max_dev < 10000.0)
+        /* Voice 5k */
+        return 1;
+    else if (max_dev < 20000.0)
+        /* APT 17k */
+        return 2;
+    else
+        /* APT 25k */
+        return 3;
+}
+
 CDemodOptions::CDemodOptions(QWidget *parent) :
     QDialog(parent),
     ui(new Ui::CDemodOptions)
@@ -70,50 +136,34 @@ int  CDemodOptions::getCwOffset(void) const
     return ui->cwOffsetSpin->value();
 }
 
+void CDemodOptions::setMaxDev(float max_dev)
+{
+    ui->maxdevSelector->setCurrentIndex(maxdev_to_index(max_dev));
+}
+
+float CDemodOptions::getMaxDev(void) const
+{
+    return maxdev_from_index(ui->maxdevSelector->currentIndex());
+}
+
+void CDemodOptions::setEmph(double tau)
+{
+    ui->emphSelector->setCurrentIndex((tau_to_index(tau)));
+}
+
+double CDemodOptions::getEmph(void) const
+{
+    return tau_from_index(ui->emphSelector->currentIndex());
+}
+
 void CDemodOptions::on_maxdevSelector_activated(int index)
 {
-    float max_dev;
-
-    switch(index)
-    {
-    case 0:
-        /* Voice 2.5k */
-        max_dev = 2500.0;
-        break;
-    case 1:
-        /* Voice 5k */
-        max_dev = 5000.0;
-        break;
-    case 2:
-        /* APT 17k */
-        max_dev = 17000.0;
-        break;
-    case 3:
-        /* Broadcast FM 75k */
-        max_dev = 75000.0;
-        break;
-    default:
-        /* Voice 5k */
-        qDebug() << "Invalid max_dev index: " << index;
-        max_dev = 5000.0;
-        break;
-    }
-
-    emit fmMaxdevSelected(max_dev);
+    emit fmMaxdevSelected(maxdev_from_index(index));
 }
 
 void CDemodOptions::on_emphSelector_activated(int index)
 {
-    double tau_tbl[] = {0.0, 25.0, 50.0, 75.0, 100.0, 250.0, 530.0, 1000.0};
-    double tau;
-
-    if ((index < 0) || (index > 7)) {
-        qDebug() << "Invalid tau selection index: " << index;
-        return;
-    }
-
-    tau = tau_tbl[index] * 1.0e-6;
-    emit fmEmphSelected(tau);
+    emit fmEmphSelected(tau_from_index(index));
 }
 
 void CDemodOptions::on_dcrCheckBox_toggled(bool checked)

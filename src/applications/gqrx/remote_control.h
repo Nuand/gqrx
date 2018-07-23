@@ -31,7 +31,6 @@
 #include <QTcpSocket>
 #include <QtNetwork>
 
-
 /*! \brief Simple TCP server for remote control.
  *
  * The TCP interface is compatible with the hamlib rigtctld so that applications
@@ -83,9 +82,11 @@ public:
 public slots:
     void setNewFrequency(qint64 freq);
     void setFilterOffset(qint64 freq);
+    void setLnbLo(double freq_mhz);
     void setBandwidth(qint64 bw);
     void setSignalLevel(float level);
     void setMode(int mode);
+    void setPassband(int passband_lo, int passband_hi);
     void setSquelchLevel(double level);
     void startAudioRecorder(QString unused);
     void stopAudioRecorder();
@@ -93,7 +94,9 @@ public slots:
 signals:
     void newFrequency(qint64 freq);
     void newFilterOffset(qint64 offset);
+    void newLnbLo(double freq_mhz);
     void newMode(int mode);
+    void newPassband(int passband);
     void newSquelchLevel(double level);
     void startAudioRecorderEvent();
     void stopAudioRecorderEvent();
@@ -112,16 +115,39 @@ private:
     qint64      rc_freq;
     qint64      rc_filter_offset;
     qint64      bw_half;
+    double      rc_lnb_lo_mhz;     /*!< Current LNB LO freq in MHz */
 
     int         rc_mode;           /*!< Current mode. */
+    int         rc_passband_lo;    /*!< Current low cutoff. */
+    int         rc_passband_hi;    /*!< Current high cutoff. */
     float       signal_level;      /*!< Signal level in dBFS */
     double      squelch_level;     /*!< Squelch level in dBFS */
     bool        audio_recorder_status; /*!< Recording enabled */
     bool        receiver_running;  /*!< Wether the receiver is running or not */
+    bool        hamlib_compatible;
 
     void        setNewRemoteFreq(qint64 freq);
     int         modeStrToInt(QString mode_str);
     QString     intToModeStr(int mode);
+
+    /* RC commands */
+    QString     cmd_get_freq() const;
+    QString     cmd_set_freq(QStringList cmdlist);
+    QString     cmd_get_mode();
+    QString     cmd_set_mode(QStringList cmdlist);
+    QString     cmd_get_level(QStringList cmdlist);
+    QString     cmd_set_level(QStringList cmdlist);
+    QString     cmd_get_func(QStringList cmdlist);
+    QString     cmd_set_func(QStringList cmdlist);
+    QString     cmd_get_vfo() const;
+    QString     cmd_set_vfo(QStringList cmdlist);
+    QString     cmd_get_split_vfo() const;
+    QString     cmd_set_split_vfo();
+    QString     cmd_get_info() const;
+    QString     cmd_AOS();
+    QString     cmd_LOS();
+    QString     cmd_lnb_lo(QStringList cmdlist);
+    QString     cmd_dump_state() const;
 };
 
 #endif // REMOTE_CONTROL_H

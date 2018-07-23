@@ -35,7 +35,7 @@
 #include <string>
 
 #include "dsp/correct_iq_cc.h"
-#include "dsp/hbf_decim.h"
+#include "dsp/filter/fir_decim.h"
 #include "dsp/rx_noise_blanker_cc.h"
 #include "dsp/rx_filter.h"
 #include "dsp/rx_meter.h"
@@ -49,7 +49,9 @@
 #include "receivers/receiver_base.h"
 
 #ifdef WITH_PULSEAUDIO
-#include <pulseaudio/pa_sink.h>
+#include "pulseaudio/pa_sink.h"
+#elif WITH_PORTAUDIO
+#include "portaudio/portaudio_sink.h"
 #else
 #include <gnuradio/audio/sink.h>
 #endif
@@ -57,7 +59,6 @@
 /**
  * @defgroup DSP Digital signal processing library based on GNU Radio
  */
-
 
 /**
  * @brief Top-level receiver class.
@@ -118,10 +119,14 @@ public:
     void        set_antenna(const std::string &antenna);
 
     double      set_input_rate(double rate);
-    double      get_input_rate(void) const;
+    double      get_input_rate(void) const { return d_input_rate; }
 
     unsigned int    set_input_decim(unsigned int decim);
     unsigned int    get_input_decim(void) const { return d_decim; }
+
+    double      get_quad_rate(void) const {
+        return d_input_rate / (double)d_decim;
+    }
 
     double      set_analog_bandwidth(double bw);
     double      get_analog_bandwidth(void) const;
@@ -154,6 +159,7 @@ public:
     status      set_freq_corr(double ppm);
     float       get_signal_pwr(bool dbfs) const;
     void        set_iq_fft_size(int newsize);
+    void        set_iq_fft_window(int window_type);
     void        get_iq_fft_data(std::complex<float>* fftPoints,
                                 unsigned int &fftsize);
     void        get_audio_fft_data(std::complex<float>* fftPoints,
@@ -243,7 +249,7 @@ private:
     gr::top_block_sptr         tb;        /*!< The GNU Radio top block. */
 
     osmosdr::source::sptr     src;       /*!< Real time I/Q source. */
-    hbf_decim_sptr            input_decim;      /*!< Input decimator. */
+    fir_decim_cc_sptr         input_decim;      /*!< Input decimator. */
     receiver_base_cf_sptr     rx;        /*!< receiver. */
 
     dc_corr_cc_sptr           dc_corr;   /*!< DC corrector block. */
@@ -271,6 +277,8 @@ private:
 
 #ifdef WITH_PULSEAUDIO
     pa_sink_sptr              audio_snk;  /*!< Pulse audio sink. */
+#elif WITH_PORTAUDIO
+    portaudio_sink_sptr       audio_snk;  /*!< portaudio sink */
 #else
     gr::audio::sink::sptr     audio_snk;  /*!< gr audio sink */
 #endif

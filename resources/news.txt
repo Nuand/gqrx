@@ -1,10 +1,131 @@
-       2.6: Released TBD
+    2.11.5: Released May 17, 2018
 
+     FIXED: Crash in remote control 'q' command.
+
+
+    2.11.4: Released April 17, 2018
+
+     FIXED: Reduced size of color selector button in bookmarks tag list.
+
+
+    2.11.3: Released April 13, 2018
+
+     FIXED: Memory leak in remote control interface.
+  IMPROVED: Add backspace key to frequency controller.
+
+
+    2.11.2: Released March 24, 2018
+
+     FIXED: Layout on low resolution monitors.
+
+
+    2.11.1: Released March 18, 2018
+
+     FIXED: Removed visible border around frequency and meter widgets.
+
+
+      2.11: Released March 18, 2018
+
+       NEW: Selectable IQ FFT window type.
+     FIXED: Problems on Mac Pro computers without built-in audio.
+     FIXED: Black on black tooltips in the main window.
+     FIXED: Auto-squelch sets 0 dBFS too often.
+     FIXED: Can not play I/Q files if path contains a space.
+     FIXED: Restore gains to slider states when hardware AGC is disabled.
+     FIXED: Crash on startup when audio output device is gone (Mac OS X).
+     FIXED: Filter offset no longer limited to +/- 9.999999 MHz.
+  IMPROVED: Default FFT window for reduced spectral leakage.
+  IMPROVED: Visual indicator of squelch level in the signal meter.
+  IMPROVED: Show configuration file path when listing config files using -l
+  IMPROVED: Microtelecom Perseus integration.
+  IMPROVED: Implemented PPM correction for RF Space Cloud IQ (gr-osmosdr-gqrx)
+  IMPORVED: Implemented PPM correction for PlutoSDR (gr-osmosdr-gqrx)
+
+
+      2.10: Released January 21, 2018
+
+     FIXED: Crash when starting gqrx using hackrf.
+     FIXED: Spelling errors.
+  IMPROVED: SDRPlay integration.
+
+
+       2.9: Released November 11, 2017
+
+       NEW: Airspy HF+ support.
+     FIXED: Always save TCP and UDP host settings.
+     FIXED: Application hangs when pulseaudio server is not running.
+
+
+       2.8: Released September 16, 2017
+
+       NEW: Remote control command to set LNB LO (LNB_LO).
+     FIXED: Inactive Start DSP and Config buttons in toolbar.
+     FIXED: Frequency controller digit not redrawn after a resize.
+     FIXED: Set default mode to AM instead of none.
+  IMPROVED: Detection of gr-osmosdr when installed in custom directory.
+  IMPROVED: Remote frequency handling.
+
+
+       2.7: Released August 19, 2017
+
+       NEW: Airspy HF+ integration.
+       NEW: PlutoSDR integration.
+       NEW: Restore filter low cut and high cut between sessions.
+       NEW: Restore FM parameters between sessions.
+       NEW: Restore remote control state between sessions.
+       NEW: Support for passband when setting mode through remote.
+       NEW: Widget to enter receiver frequency.
+       NEW: Button to reset squelch to its default (-150 dB) value.
+     FIXED: Keep waterfall zoom level and zoom slider synchronised.
+     FIXED: RDS status is not kept while jumping through bookmark.
+     FIXED: .conf files are deleted when changes are saved.
+     FIXED: Remote control not working if $http_proxy is set.
+     FIXED: Audio rec does not work after trying to play deleted file.
+     FIXED: QtSvg dependency.
+  IMPROVED: Tuning through the remote control interface.
+  IMPROVED: Increase narrow band receiver rate to 96 ksps (for APT).
+  IMPROVED: LimeSDR integration.
+  IMPROVED: Voiceover interface.
+  IMPROVED: Input decimator performance.
+  IMPROVED: Increased frequency limit to 999 GHz (500 GHz LO).
+  IMPROVED: Hamradio style frequency display.
+  IMPROVED: More short waterfall time spans.
+
+
+     2.6.1: Released February 16, 2017
+
+  IMPROVED: Option for reverting the behavior of the frequency controller.
+
+
+       2.6: Released October 3, 2016
+
+       NEW: 1-2-5 scaling on FFT axis.
+       NEW: Audio waterfall.
+       NEW: Remember AGC settings between sessions.
+       NEW: Right-click on FFT resets frequency zoom.
+       NEW: Separate dB ranges for pandapter and waterfall.
+       NEW: Raw I/Q mode.
+       NEW: Portaudio support.
+       NEW: Command line option to set Qt style (fusion, windows, ...)
+     FIXED: Stuttering audio with Pulseaudio backend.
      FIXED: Use system font on FFT plot (too small font on high res displays).
      FIXED: Broken FUNcube Dongle Pro+ support on Mac OS X 10.11.4.
+     FIXED: Correct display of negative offsets between -1 and 0 kHz.
+     FIXED: Reset frequency digits below the one that is being changed.
+     FIXED: LNB LO could not be set from I/O configuration dialog.
+     FIXED: Update squelch level when switching between demodulators.
+     FIXED: Set correct filter range when loading bookmark.
+     FIXED: White area on waterfall.
+     FIXED: RFSpace Cloud-IQ support on Mac OS X and in PPA
+  IMPROVED: Input decimator performance.
   IMPROVED: SDRPlay integration.
-  IMPROVED: Only probe for devices when the program is satarted.
-       
+  IMPROVED: Only probe for devices when the program is started.
+  IMPROVED: 1-2-5 scaling on FFT axis.
+  IMPROVED: Allow user to enter ALSA device name.
+  IMPROVED: Set default audio FFT range to -70...0 dB.
+  IMPROVED: Restore audio FFT dB scaling between sessions.
+
+>>>>>>> 473c88533f6a0accb5565e4f6e330c92ec3efdb5
      2.5.3: Released February 3, 2016.
 
        NEW: Set and read squelch via remote control socket.
@@ -56,7 +177,7 @@
      FIXED: Use correct main category in desktop entry file.
   IMPROVED: Support up to 1M point FFT.
   IMPROVED: Fractional PPM correction.
-  IMPROVED: AGC peformance.
+  IMPROVED: AGC performance.
   IMPROVED: FFT performance.
   IMPROVED: Right click on frequency digit to clear digits.
   IMPROVED: Robustness against malformed remote control commands.

@@ -3,7 +3,7 @@
  * Gqrx SDR: Software defined radio receiver powered by GNU Radio and Qt
  *           http://gqrx.dk/
  *
- * Copyright 2013 Alexandru Csete OZ9AEC.
+ * Copyright 2013-2016 Alexandru Csete OZ9AEC.
  *
  * Gqrx is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -47,7 +47,20 @@ public:
     void setUdpHost(const QString &host);
     void setUdpPort(int port);
 
+    void setFftSplit(int pct_2d);
+    int  getFftSplit(void) const;
+
+    void setPandapterRange(int min, int max);
+    void getPandapterRange(int * min, int * max) const;
+
+    void setWaterfallRange(int min, int max);
+    void getWaterfallRange(int * min, int * max) const;
+
 signals:
+    void newFftSplit(int pct_2d);
+    void newPandapterRange(int min, int max);
+    void newWaterfallRange(int min, int max);
+
     /*! \brief Signal emitted when a new valid directory has been selected. */
     void newRecDirSelected(const QString &dir);
 
@@ -55,6 +68,9 @@ signals:
     void newUdpPort(int port);
 
 private slots:
+    void on_fftSplitSlider_valueChanged(int value);
+    void on_pandRangeSlider_valuesChanged(int min, int max);
+    void on_wfRangeSlider_valuesChanged(int min, int max);
     void on_recDirEdit_textChanged(const QString &text);
     void on_recDirButton_clicked();
     void on_udpHost_textChanged(const QString &text);

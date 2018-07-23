@@ -26,6 +26,7 @@
 #include <QTextStream>
 #include <QString>
 #include <QSet>
+#include <algorithm>
 #include "bookmarks.h"
 #include <stdio.h>
 #include <wchar.h>
@@ -59,7 +60,7 @@ void Bookmarks::setConfigDir(const QString& cfg_dir)
 void Bookmarks::add(BookmarkInfo &info)
 {
     m_BookmarkList.append(info);
-    qSort(m_BookmarkList);
+    std::stable_sort(m_BookmarkList.begin(),m_BookmarkList.end());
     save();
     emit( BookmarksChanged() );
 }
@@ -104,6 +105,7 @@ bool Bookmarks::load()
                 printf("\nBookmarks: Ignoring Line:\n  %s\n", line.toLatin1().data());
             }
         }
+        std::sort(m_TagList.begin(),m_TagList.end());
 
         // Read Bookmarks, after first empty line.
         while (!file.atEnd())
@@ -136,7 +138,7 @@ bool Bookmarks::load()
             }
         }
         file.close();
-        qSort(m_BookmarkList);
+        std::stable_sort(m_BookmarkList.begin(),m_BookmarkList.end());
 
         emit BookmarksChanged();
         return true;

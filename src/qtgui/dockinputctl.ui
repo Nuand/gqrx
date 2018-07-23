@@ -6,14 +6,14 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>234</width>
-    <height>224</height>
+    <width>240</width>
+    <height>240</height>
    </rect>
   </property>
   <property name="minimumSize">
    <size>
-    <width>234</width>
-    <height>224</height>
+    <width>240</width>
+    <height>240</height>
    </size>
   </property>
   <property name="windowIcon">
@@ -35,16 +35,16 @@
      <number>6</number>
     </property>
     <property name="leftMargin">
-     <number>4</number>
+     <number>5</number>
     </property>
     <property name="topMargin">
-     <number>4</number>
+     <number>5</number>
     </property>
     <property name="rightMargin">
-     <number>4</number>
+     <number>5</number>
     </property>
     <property name="bottomMargin">
-     <number>4</number>
+     <number>5</number>
     </property>
     <item>
      <layout class="QHBoxLayout" name="horizontalLayout">
@@ -82,10 +82,10 @@
          <number>6</number>
         </property>
         <property name="minimum">
-         <double>-2000.000000000000000</double>
+         <double>-500000.000000000000000</double>
         </property>
         <property name="maximum">
-         <double>7900.000000000000000</double>
+         <double>500000.000000000000000</double>
         </property>
        </widget>
       </item>
@@ -215,13 +215,30 @@
      </layout>
     </item>
     <item>
+     <widget class="Line" name="line">
+      <property name="orientation">
+       <enum>Qt::Horizontal</enum>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QCheckBox" name="freqCtrlResetButton">
+      <property name="toolTip">
+       <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Reset subordinate digits in main frequency control widget&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+      </property>
+      <property name="text">
+       <string>Reset frequency controller digits</string>
+      </property>
+     </widget>
+    </item>
+    <item>
      <spacer name="verticalSpacer">
       <property name="orientation">
        <enum>Qt::Vertical</enum>
       </property>
       <property name="sizeHint" stdset="0">
        <size>
-        <width>20</width>
+        <width>5</width>
         <height>0</height>
        </size>
       </property>
